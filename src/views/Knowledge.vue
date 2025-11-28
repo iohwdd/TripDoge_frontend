@@ -1,97 +1,136 @@
 <template>
   <div class="knowledge-container">
-    <!-- 顶部角色选择区 -->
-    <div class="role-selector">
-      <h2 class="page-title">
-        <icon-book style="margin-right: 8px; color: rgb(var(--primary-6));" />
-        角色记忆库
-      </h2>
-      <p class="page-desc">每个角色都有独立的记忆，上传文档来丰富他们的知识储备吧！</p>
-      
-      <a-tabs type="capsule" v-model:active-key="currentRoleId" @change="handleRoleChange">
-        <a-tab-pane v-for="role in roles" :key="role.id" :title="role.name">
-          <template #title>
-            <div class="tab-label">
-              <a-avatar :size="24" :image-url="role.avatarUrl" style="margin-right: 8px;" />
-              {{ role.name }}
-            </div>
-          </template>
-        </a-tab-pane>
-      </a-tabs>
-    </div>
-
-    <!-- 内容区 -->
-    <a-card class="content-card">
-      <div class="toolbar">
-        <div class="left-tools">
-           <a-upload
-            action="/api/doc/parse"
-            :headers="uploadHeaders"
-            :data="{ roleId: currentRoleId }" 
-            :show-file-list="false"
-            @success="handleUploadSuccess"
-            @error="handleUploadError"
-          >
-            <template #upload-button>
-              <a-button type="primary" size="large">
-                <template #icon><icon-upload /></template>
-                投喂知识 (上传文档)
-              </a-button>
-            </template>
-          </a-upload>
-          <span class="tip-text">支持 PDF, Word, TXT 格式</span>
-        </div>
-        
+    <!-- 左侧：角色导航栏 -->
+    <div class="role-sidebar">
+      <div class="sidebar-header">
+        <h2 class="sidebar-title">记忆对象</h2>
         <a-input-search 
-          placeholder="搜索记忆..." 
-          style="width: 260px" 
+          v-model="roleSearchKeyword" 
+          placeholder="搜索角色..." 
+          class="role-search"
           allow-clear
         />
       </div>
 
-      <a-table
-        :data="data"
-        :loading="loading"
-        :pagination="pagination"
-        :bordered="false"
-        row-key="fileId"
-        class="custom-table"
-      >
-        <template #columns>
-          <a-table-column title="文档名称" data-index="fileName">
-            <template #cell="{ record }">
-              <div class="file-name-cell">
-                <icon-file-pdf v-if="record.fileName.endsWith('.pdf')" style="color: #ff4d4f; font-size: 20px; margin-right: 8px;" />
-                <icon-file v-else style="color: #1890ff; font-size: 20px; margin-right: 8px;" />
-                <span>{{ record.fileName }}</span>
-              </div>
-            </template>
-          </a-table-column>
-          <a-table-column title="大小" data-index="fileSize" width="120">
-            <template #cell="{ record }">
-              {{ (record.fileSize / 1024 / 1024).toFixed(2) }} MB
-            </template>
-          </a-table-column>
-          <a-table-column title="上传时间" data-index="createTime" width="180" />
-          <a-table-column title="操作" width="120">
-            <template #cell="{ record }">
-              <a-popconfirm content="确定要删除这段记忆吗？" type="warning" @ok="handleDelete(record)">
-                <a-button type="text" size="small" status="danger">
-                  <template #icon><icon-delete /></template>
-                  删除
-                </a-button>
-              </a-popconfirm>
-            </template>
-          </a-table-column>
-        </template>
-        <template #empty>
-           <div class="empty-state">
-             <icon-folder style="font-size: 48px; color: var(--color-text-3); margin-bottom: 10px;" />
-             <p>这个角色还没有专属记忆哦~</p>
+      <div class="role-list">
+        <div 
+          v-for="role in filteredRoles" 
+          :key="role.id" 
+          class="role-item"
+          :class="{ active: currentRoleId === role.id }"
+          @click="handleRoleChange(role.id)"
+        >
+          <a-avatar :size="40" :image-url="role.avatarUrl" class="role-avatar" />
+          <div class="role-info">
+            <div class="role-name">{{ role.name }}</div>
+            <div class="role-tag">{{ role.roleSetting }}</div>
+          </div>
+          <div class="active-indicator" :style="{ backgroundColor: role.themeColor || '#FF9A2E' }"></div>
+        </div>
+        
+        <!-- 空状态 -->
+        <div v-if="filteredRoles.length === 0" class="empty-roles">
+          无此角色
+        </div>
+      </div>
+    </div>
+
+    <!-- 右侧：内容管理区 -->
+    <div class="content-area">
+      <template v-if="currentRole">
+        <!-- 角色头部卡片 -->
+        <div class="content-header" :style="{ backgroundImage: currentRole.bgImage }">
+           <div class="header-overlay"></div>
+           <div class="header-content">
+             <a-avatar :size="64" :image-url="currentRole.avatarUrl" class="header-avatar" :style="{ borderColor: currentRole.themeColor || '#fff' }" />
+             <div class="header-text">
+               <h1 class="current-role-name">{{ currentRole.name }} 的记忆库</h1>
+               <p class="current-role-desc">投喂文档，让TA变得更懂你。</p>
+             </div>
            </div>
-        </template>
-      </a-table>
-    </a-card>
+        </div>
+
+        <!-- 工具栏与表格 -->
+        <div class="table-wrapper">
+          <div class="toolbar">
+            <div class="left-tools">
+               <a-upload
+                action="/api/doc/parse"
+                :headers="uploadHeaders"
+                :data="{ roleId: currentRoleId }" 
+                :show-file-list="false"
+                @success="handleUploadSuccess"
+                @error="handleUploadError"
+              >
+                <template #upload-button>
+                  <a-button type="primary" size="large" class="upload-btn" :style="{ backgroundColor: currentRole.themeColor, borderColor: currentRole.themeColor }">
+                    <template #icon><icon-upload /></template>
+                    上传记忆文档
+                  </a-button>
+                </template>
+              </a-upload>
+              <span class="tip-text">支持 PDF, Word, TXT (Max 10MB)</span>
+            </div>
+            
+            <a-input-search 
+              placeholder="搜索文档..." 
+              style="width: 240px" 
+              allow-clear
+            />
+          </div>
+
+          <a-table
+            :data="data"
+            :loading="loading"
+            :pagination="pagination"
+            :bordered="false"
+            row-key="fileId"
+            class="custom-table"
+          >
+            <template #columns>
+              <a-table-column title="文档名称" data-index="fileName">
+                <template #cell="{ record }">
+                  <div class="file-name-cell">
+                    <icon-file-pdf v-if="record.fileName.endsWith('.pdf')" style="color: #ff4d4f; font-size: 24px; margin-right: 12px;" />
+                    <icon-file v-else style="color: #1890ff; font-size: 24px; margin-right: 12px;" />
+                    <span class="file-name-text">{{ record.fileName }}</span>
+                  </div>
+                </template>
+              </a-table-column>
+              <a-table-column title="大小" data-index="fileSize" width="120">
+                <template #cell="{ record }">
+                  {{ (record.fileSize / 1024 / 1024).toFixed(2) }} MB
+                </template>
+              </a-table-column>
+              <a-table-column title="上传时间" data-index="createTime" width="180" />
+              <a-table-column title="操作" width="100">
+                <template #cell="{ record }">
+                  <a-popconfirm content="确定要删除这段记忆吗？" type="warning" @ok="handleDelete(record)">
+                    <a-button type="text" size="small" status="danger" shape="circle">
+                      <icon-delete />
+                    </a-button>
+                  </a-popconfirm>
+                </template>
+              </a-table-column>
+            </template>
+            <template #empty>
+               <div class="empty-state">
+                 <div class="empty-icon-bg">
+                   <icon-folder style="font-size: 32px; color: var(--color-text-3);" />
+                 </div>
+                 <p>空空如也~ 快去上传文档吧</p>
+               </div>
+            </template>
+          </a-table>
+        </div>
+      </template>
+      
+      <!-- 未选择状态 (理论上默认会选中第一个，这里做防守) -->
+      <div v-else class="no-select-state">
+        <icon-user-group style="font-size: 48px; color: #ccc; margin-bottom: 16px;" />
+        <p>请选择一个角色查看记忆库</p>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -100,19 +139,34 @@ import { ref, onMounted, computed } from 'vue'
 import { getDocList, deleteDoc } from '@/api/doc'
 import { getRoleList } from '@/api/role'
 import { Message } from '@arco-design/web-vue'
-import { IconUpload, IconFile, IconFilePdf, IconDelete, IconBook, IconFolder } from '@arco-design/web-vue/es/icon'
+import { IconUpload, IconFile, IconFilePdf, IconDelete, IconFolder, IconUserGroup } from '@arco-design/web-vue/es/icon'
 
 const loading = ref(false)
 const data = ref([])
 const roles = ref([])
 const currentRoleId = ref(null)
-const pagination = { pageSize: 10 }
+const roleSearchKeyword = ref('')
+const pagination = { pageSize: 8 }
 
 const uploadHeaders = computed(() => ({
   Authorization: `Bearer ${localStorage.getItem('token')}`
 }))
 
-// 初始化：先获取角色列表，选中第一个，然后获取文档
+const currentRole = computed(() => {
+  return roles.value.find(r => r.id === currentRoleId.value)
+})
+
+// 前端过滤角色列表
+const filteredRoles = computed(() => {
+  if (!roleSearchKeyword.value) return roles.value
+  const kw = roleSearchKeyword.value.toLowerCase()
+  return roles.value.filter(r => 
+    r.name.toLowerCase().includes(kw) || 
+    r.roleSetting.toLowerCase().includes(kw)
+  )
+})
+
+// 初始化
 const init = async () => {
   try {
     const roleRes = await getRoleList()
@@ -131,7 +185,6 @@ const fetchDocs = async () => {
   
   loading.value = true
   try {
-    // 传入 roleId 获取对应角色的知识库
     const res = await getDocList({ roleId: currentRoleId.value })
     data.value = res
   } catch (error) {
@@ -149,7 +202,7 @@ const handleRoleChange = (id) => {
 const handleUploadSuccess = (fileItem) => {
   const res = fileItem.response
   if (res && res.code === 200) {
-    Message.success('投喂成功！角色正在消化知识...')
+    Message.success('记忆植入成功！')
     fetchDocs()
   } else {
     Message.error(res?.message || '上传失败')
@@ -157,7 +210,7 @@ const handleUploadSuccess = (fileItem) => {
 }
 
 const handleUploadError = () => {
-  Message.error('上传失败 (Mock 环境需确保 mockjs 拦截正确)')
+  Message.error('上传失败 (Mock)')
 }
 
 const handleDelete = async (record) => {
@@ -177,52 +230,182 @@ onMounted(() => {
 
 <style scoped>
 .knowledge-container {
-  padding: 0;
+  display: flex;
   height: 100%;
+  background-color: #fff;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
+}
+
+/* 左侧导航栏 */
+.role-sidebar {
+  width: 280px;
+  background-color: #FFFBF5; /* 极浅的米色背景 */
+  border-right: 1px solid rgba(0,0,0,0.05);
   display: flex;
   flex-direction: column;
+}
+
+.sidebar-header {
+  padding: 20px 16px;
+}
+
+.sidebar-title {
+  margin: 0 0 12px 0;
+  font-size: 18px;
+  color: #4E342E;
+  padding-left: 4px;
+}
+
+.role-search {
+  background-color: #fff;
+  border-radius: 8px;
+}
+
+.role-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 12px 20px 12px;
+}
+
+.role-item {
+  display: flex;
+  align-items: center;
+  padding: 12px;
+  margin-bottom: 8px;
+  border-radius: 12px;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s;
+}
+
+.role-item:hover {
+  background-color: rgba(255, 154, 46, 0.08);
+}
+
+.role-item.active {
+  background-color: #fff;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.role-avatar {
+  border: 2px solid transparent;
+  margin-right: 12px;
+}
+
+.role-item.active .role-avatar {
+  border-color: var(--primary-6);
+}
+
+.role-info {
+  flex: 1;
+  overflow: hidden;
+}
+
+.role-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #4E342E;
+  margin-bottom: 2px;
+}
+
+.role-tag {
+  font-size: 12px;
+  color: #8D6E63;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.active-indicator {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 24px;
+  border-top-right-radius: 4px;
+  border-bottom-right-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.role-item.active .active-indicator {
+  opacity: 1;
+}
+
+.empty-roles {
+  text-align: center;
+  color: #ccc;
+  padding-top: 40px;
+  font-size: 13px;
+}
+
+/* 右侧内容区 */
+.content-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background-color: #fff;
+}
+
+.content-header {
+  height: 160px;
+  position: relative;
+  background-size: cover;
+  background-position: center;
+  display: flex;
+  align-items: center;
+  padding: 0 40px;
+}
+
+.header-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(10px);
+}
+
+.header-content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
   gap: 20px;
 }
 
-.role-selector {
-  background: linear-gradient(to right, #FFF8EB, #FFFFFF);
-  padding: 24px 32px;
-  border-radius: 16px;
-  box-shadow: 0 2px 12px rgba(255, 154, 46, 0.05);
+.header-avatar {
+  border: 3px solid #fff;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
 }
 
-.page-title {
-  display: flex;
-  align-items: center;
-  margin: 0 0 8px 0;
-  color: #4E342E; /* 深褐色，像咖啡色 */
+.current-role-name {
+  margin: 0 0 6px 0;
   font-size: 24px;
+  color: #4E342E;
 }
 
-.page-desc {
-  margin: 0 0 20px 0;
-  color: #8D6E63;
+.current-role-desc {
+  margin: 0;
+  color: #6D4C41;
   font-size: 14px;
 }
 
-.tab-label {
-  display: flex;
-  align-items: center;
-  padding: 4px 0;
-}
-
-.content-card {
+.table-wrapper {
   flex: 1;
-  border-radius: 16px;
-  display: flex;
-  flex-direction: column;
+  padding: 24px 32px;
+  overflow-y: auto;
 }
 
 .toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 24px;
+  margin-bottom: 20px;
 }
 
 .left-tools {
@@ -231,36 +414,52 @@ onMounted(() => {
   gap: 16px;
 }
 
+.upload-btn {
+  border-radius: 8px;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+}
+
 .tip-text {
-  color: var(--color-text-3);
+  color: #999;
   font-size: 12px;
 }
 
-.file-name-cell {
-  display: flex;
-  align-items: center;
+.file-name-text {
+  font-size: 15px;
+  color: #333;
   font-weight: 500;
 }
 
 .empty-state {
-  padding: 40px;
+  padding: 60px 0;
   text-align: center;
-  color: var(--color-text-3);
   display: flex;
   flex-direction: column;
   align-items: center;
+  color: #999;
 }
 
-/* 深度定制表格样式 */
+.empty-icon-bg {
+  width: 64px;
+  height: 64px;
+  background-color: #F7F8FA;
+  border-radius: 50%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+/* 表格样式覆盖 */
 :deep(.arco-table-cell) {
-  padding: 16px !important;
+  padding: 14px 16px !important;
 }
 :deep(.arco-table-th) {
-  background-color: #FFF8EB !important;
+  background-color: #fff !important;
+  border-bottom: 1px solid #f0f0f0;
   color: #8D6E63;
-  font-weight: 600;
 }
 :deep(.arco-table-tr:hover .arco-table-td) {
-  background-color: #FFF2D6 !important;
+  background-color: #FFFBF5 !important;
 }
 </style>
