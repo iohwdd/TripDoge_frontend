@@ -87,7 +87,8 @@
           </div>
           
           <div class="content-wrapper">
-            <div class="bubble-name" v-if="msg.role === 'assistant'">{{ currentRole?.name }}</div>
+            
+            <!-- AI 消息内容 -->
             <div class="content markdown-body" v-if="msg.loading">
               <div class="typing-dots">
                 <span></span><span></span><span></span>
@@ -99,6 +100,28 @@
               v-html="renderMarkdown(msg.content)"
               :style="msg.role === 'user' ? { background: currentRole?.themeColor || 'var(--primary-6)' } : {}"
             ></div>
+
+            <!-- 工具调用展示区 (移到气泡下方) -->
+            <div v-if="msg.toolCalls && msg.toolCalls.length > 0" class="tool-calls-container">
+              <a-collapse :bordered="false" expand-icon-position="left">
+                <template #expand-icon="{ active }">
+                   <icon-caret-right :style="{ transform: active ? 'rotate(90deg)' : 'none', marginRight: '8px', fontSize: '12px', color: '#999' }" />
+                </template>
+                <a-collapse-item v-for="(tool, idx) in msg.toolCalls" :key="idx" :header="`使用工具: ${tool.name || '未知工具'}`">
+                  <div class="tool-detail">
+                    <div class="tool-section">
+                      <span class="tool-label">输入:</span>
+                      <!-- 格式化展示 JSON -->
+                      <pre class="code-block">{{ formatJson(tool.args) }}</pre>
+                    </div>
+                    <div class="tool-section" v-if="tool.result">
+                      <span class="tool-label">结果:</span>
+                      <pre class="code-block result">{{ tool.result }}</pre>
+                    </div>
+                  </div>
+                </a-collapse-item>
+              </a-collapse>
+            </div>
           </div>
         </div>
       </div>
@@ -149,7 +172,7 @@ import { useUserStore } from '@/stores/user'
 import { getRoleDetail } from '@/api/role'
 import { getChatHistory, resetChat } from '@/api/chat'
 import { Message } from '@arco-design/web-vue'
-import { IconRefresh, IconImage, IconLeft, IconSend, IconUser } from '@arco-design/web-vue/es/icon'
+import { IconRefresh, IconImage, IconLeft, IconSend, IconUser, IconCaretRight } from '@arco-design/web-vue/es/icon'
 import MarkdownIt from 'markdown-it'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { adaptRoleData } from '@/utils/roleAdapter'
@@ -172,6 +195,22 @@ const renderMarkdown = (text) => {
   return md.render(text)
 }
 
+// 格式化 JSON
+const formatJson = (jsonStr) => {
+  try {
+    // 如果是已经是对象，直接格式化
+    if (typeof jsonStr === 'object') {
+      return JSON.stringify(jsonStr, null, 2)
+    }
+    // 尝试解析字符串
+    const obj = JSON.parse(jsonStr)
+    return JSON.stringify(obj, null, 2)
+  } catch (e) {
+    // 解析失败，直接返回原字符串
+    return jsonStr
+  }
+}
+
 // 滚动到底部
 const scrollToBottom = async () => {
   await nextTick()
@@ -190,17 +229,88 @@ const fetchRoleDetail = async () => {
   }
 }
 
-// 获取历史记录
+// 获取历史记录 (含工具调用合并逻辑)
 const fetchHistory = async () => {
   try {
     const res = await getChatHistory(roleId.value)
-    const validMessages = res.filter(item => item.role !== 'system')
-    messages.value = validMessages.map(item => ({
-      id: item.id,
-      role: item.role,
-      content: item.content,
-      loading: false
-    }))
+    const processedMsgs = []
+    let tempTool = null
+
+    // 遍历原始消息
+    for (const item of res) {
+      if (item.role === 'system') continue // 跳过 system
+
+      // 1. 工具调用请求 (Tool Call)
+      if (item.toolCall) {
+        try {
+          // 解析参数，处理 LangChain4j 可能返回的数组结构
+          let rawCall = item.toolCall
+          let toolName = 'Tool Call'
+          let toolArgs = item.toolCall
+
+          // 尝试解析 JSON
+          if (typeof rawCall === 'string') {
+             try {
+               const parsed = JSON.parse(rawCall)
+               // 如果是数组且包含 id/name/arguments，说明是标准 ToolCall 结构
+               if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].name) {
+                 // 取第一个调用的 name 和 arguments
+                 toolName = parsed[0].name
+                 toolArgs = parsed[0].arguments
+               }
+             } catch(e) { /* ignore */ }
+          }
+
+          tempTool = {
+            name: toolName,
+            args: toolArgs,
+            result: null
+          }
+        } catch (e) {
+          tempTool = { name: 'Tool Call', args: item.toolCall, result: null }
+        }
+        continue // 暂存，不显示
+      }
+
+      // 2. 工具执行结果 (Tool Result)
+      if (item.toolExecResult) {
+        if (tempTool) {
+          tempTool.result = item.toolExecResult
+        } else {
+          tempTool = { name: 'Tool Result', args: 'Unknown', result: item.toolExecResult }
+        }
+        continue // 暂存，不显示
+      }
+
+      // 3. 普通消息 (AI 回复或用户消息)
+      if (item.role === 'assistant') {
+        const msgObj = {
+          id: item.id,
+          role: item.role,
+          content: item.content,
+          loading: false,
+          toolCalls: []
+        }
+        
+        if (tempTool) {
+          msgObj.toolCalls.push(tempTool)
+          tempTool = null 
+        }
+        
+        processedMsgs.push(msgObj)
+      } else {
+        if (tempTool) tempTool = null 
+        
+        processedMsgs.push({
+          id: item.id,
+          role: item.role,
+          content: item.content,
+          loading: false
+        })
+      }
+    }
+
+    messages.value = processedMsgs
     scrollToBottom()
   } catch (error) {
     console.error(error)
@@ -229,7 +339,8 @@ const sendMessage = async () => {
     id: aiMsgId,
     role: 'assistant',
     content: '',
-    loading: true
+    loading: true,
+    toolCalls: [] 
   }) - 1
   
   scrollToBottom()
@@ -416,19 +527,12 @@ watch(() => route.params.roleId, (newId) => {
   z-index: 1;
   flex: 1;
   overflow-y: auto;
-  /* 
-    关键修复：
-    顶部 padding = header wrapper height (~96px) + extra space
-    底部 padding = footer height (~100px) + extra space
-    确保内容不被遮挡
-  */
   padding: 100px 20px 120px 20px; 
 }
 
 .message-list {
   max-width: 700px;
   margin: 0 auto;
-  /* 移除 height: 100%，让内容自然撑开，否则滚动条可能异常 */
   display: flex;
   flex-direction: column;
 }
@@ -467,7 +571,7 @@ watch(() => route.params.roleId, (newId) => {
   display: flex;
   margin-bottom: 24px;
   gap: 12px;
-  align-items: flex-end;
+  align-items: flex-start; /* Modified */
   width: 100%;
 }
 
@@ -479,6 +583,11 @@ watch(() => route.params.roleId, (newId) => {
   max-width: 75%;
   display: flex;
   flex-direction: column;
+  align-items: flex-start; /* Modified */
+}
+
+.message-item.user .content-wrapper {
+  align-items: flex-end; /* Added */
 }
 
 .bubble-name {
@@ -486,6 +595,97 @@ watch(() => route.params.roleId, (newId) => {
   color: #8D6E63;
   margin-bottom: 4px;
   margin-left: 4px;
+}
+
+/* 工具调用样式 - 附属标签风格 */
+.tool-calls-container {
+  margin-top: -6px;
+  margin-left: 12px;
+  margin-bottom: 4px;
+  background: rgba(255, 255, 255, 0.85);
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-top: none;
+  width: fit-content;
+  max-width: 95%;
+  font-size: 12px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.04);
+  z-index: 0;
+}
+
+/* 覆盖 Arco Collapse 样式以适应半透明 */
+.tool-calls-container :deep(.arco-collapse-item-header) {
+  background: transparent;
+  border-bottom: 1px solid rgba(0,0,0,0.05);
+  font-size: 13px;
+  color: #555;
+  padding: 8px 12px;
+  border: none;
+  display: flex;
+  align-items: center;
+}
+
+/* 图标容器：固定宽度，防止挤压 */
+.tool-calls-container :deep(.arco-collapse-item-icon) {
+  margin-right: 10px !important;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0; /* 关键：防止被压缩导致重叠 */
+}
+
+/* 标题样式 */
+.tool-calls-container :deep(.arco-collapse-item-header-title) {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.5;
+  margin-left: 20px !important; /* 双重保险：给文字也加左边距 */
+}
+
+.tool-calls-container :deep(.arco-collapse-item-content) {
+  background: rgba(255, 255, 255, 0.4);
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
+.tool-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tool-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tool-label {
+  font-weight: bold;
+  color: #666;
+}
+
+.code-block {
+  margin: 0;
+  background: rgba(0,0,0,0.05);
+  padding: 8px;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-family: monospace;
+  color: #333;
+}
+
+.code-block.result {
+  color: #0057b7; /* 稍微区分一下结果颜色 */
 }
 
 .content {
@@ -505,6 +705,8 @@ watch(() => route.params.roleId, (newId) => {
   border-bottom-left-radius: 4px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.03);
   border: 1px solid rgba(255,255,255,0.5);
+  position: relative;
+  z-index: 1;
 }
 
 /* 用户气泡：主题色 */
@@ -522,9 +724,8 @@ watch(() => route.params.roleId, (newId) => {
   left: 0;
   right: 0;
   z-index: 10;
-  /* 增加 padding 以确保美观 */
-  padding: 20px 24px 30px 24px;
-  background: linear-gradient(to top, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0) 100%);
+  padding: 20px 24px 24px 24px;
+  background: linear-gradient(to top, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0) 100%);
 }
 
 .input-bar {
