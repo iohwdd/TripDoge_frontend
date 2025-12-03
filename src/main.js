@@ -8,9 +8,6 @@ import './styles/theme.css'; // 引入自定义暖色主题
 import App from './App.vue'
 import router from './router'
 
-// 引入 Mock
-import './mock'
-
 const app = createApp(App)
 
 app.use(createPinia())

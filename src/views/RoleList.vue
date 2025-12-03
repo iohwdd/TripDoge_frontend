@@ -45,7 +45,7 @@
                 <div class="card-header">
                   <h2 class="role-name">{{ currentRole.name }}</h2>
                   <a-tag :color="currentRole.themeColor" class="role-tag">
-                    {{ currentRole.roleSetting }}
+                    {{ currentRole.roleSettingLabel }}
                   </a-tag>
                 </div>
 
@@ -108,6 +108,7 @@ import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { getRoleList } from '@/api/role'
 import { IconHeartFill, IconMessage } from '@arco-design/web-vue/es/icon'
+import { adaptRoleData } from '@/utils/roleAdapter'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -127,7 +128,9 @@ const fetchRoles = async () => {
   loading.value = true
   try {
     const res = await getRoleList()
-    roles.value = res
+    // 使用适配器处理数据
+    roles.value = res.map(adaptRoleData)
+    
     if (roles.value.length > 0) {
       currentRole.value = roles.value[0]
     }
@@ -319,6 +322,7 @@ onMounted(() => {
   display: flex;
   gap: 10px;
   margin-bottom: 32px;
+  flex-wrap: wrap;
 }
 
 .mini-tag {

@@ -12,7 +12,19 @@
 
         <div class="role-info" v-if="currentRole">
           <div class="avatar-ring" :style="{ borderColor: currentRole?.themeColor || 'var(--primary-6)' }">
-             <a-avatar :size="40" :image-url="currentRole.avatarUrl" />
+             <a-avatar :size="40">
+                <template #trigger-icon>
+                  <icon-user />
+                </template>
+                <img 
+                  :src="currentRole.avatarUrl" 
+                  @error="(e) => { e.target.style.display='none'; e.target.nextElementSibling.style.display='flex' }"
+                  style="width: 100%; height: 100%; object-fit: cover;"
+                />
+                <div style="display:none; width: 100%; height: 100%; background: #f2f3f5; color: #86909c; font-weight: bold; justify-content: center; align-items: center;">
+                   {{ currentRole.name?.charAt(0) }}
+                </div>
+             </a-avatar>
           </div>
           <div class="meta">
             <div class="name">{{ currentRole.name }}</div>
@@ -35,7 +47,13 @@
     <!-- 消息列表 (滚动区域) -->
     <div class="chat-body" ref="chatBodyRef">
       <div class="message-list">
-        <div class="date-divider">今天</div>
+        <!-- 日期分割线 -->
+        <div class="date-divider" v-if="messages.length > 0">今天</div>
+        
+        <!-- 空状态提示 -->
+        <div v-if="messages.length === 0" class="empty-chat-tip">
+           <span class="tip-pill">开始与 {{ currentRole?.name || 'TA' }} 的新对话吧~</span>
+        </div>
         
         <div 
           v-for="msg in messages" 
@@ -43,8 +61,29 @@
           :class="['message-item', msg.role === 'user' ? 'user' : 'assistant']"
         >
           <div class="avatar">
-            <a-avatar v-if="msg.role === 'user'" :size="40" :image-url="userInfo.avatarUrl">User</a-avatar>
-            <a-avatar v-else :size="40" :image-url="currentRole?.avatarUrl">AI</a-avatar>
+            <a-avatar v-if="msg.role === 'user'" :size="40">
+                <img 
+                  v-if="userInfo.avatarUrl"
+                  :src="userInfo.avatarUrl" 
+                  @error="(e) => { e.target.style.display='none'; e.target.nextElementSibling.style.display='flex' }"
+                  style="width: 100%; height: 100%; object-fit: cover;"
+                />
+                <div style="display:none; width: 100%; height: 100%; background: var(--primary-6); color: #fff; justify-content: center; align-items: center;">
+                  U
+                </div>
+            </a-avatar>
+            
+            <a-avatar v-else :size="40">
+               <img 
+                  v-if="currentRole?.avatarUrl"
+                  :src="currentRole.avatarUrl" 
+                  @error="(e) => { e.target.style.display='none'; e.target.nextElementSibling.style.display='flex' }"
+                  style="width: 100%; height: 100%; object-fit: cover;"
+               />
+               <div style="display:none; width: 100%; height: 100%; background: #f2f3f5; color: #86909c; justify-content: center; align-items: center;">
+                 AI
+               </div>
+            </a-avatar>
           </div>
           
           <div class="content-wrapper">
@@ -108,10 +147,12 @@ import { ref, onMounted, nextTick, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { getRoleDetail } from '@/api/role'
-import { getChatHistory, resetChat, sendChatMessage } from '@/api/chat'
+import { getChatHistory, resetChat } from '@/api/chat'
 import { Message } from '@arco-design/web-vue'
-import { IconRefresh, IconImage, IconLeft, IconSend } from '@arco-design/web-vue/es/icon'
+import { IconRefresh, IconImage, IconLeft, IconSend, IconUser } from '@arco-design/web-vue/es/icon'
 import MarkdownIt from 'markdown-it'
+import { fetchEventSource } from '@microsoft/fetch-event-source'
+import { adaptRoleData } from '@/utils/roleAdapter'
 
 const route = useRoute()
 const userStore = useUserStore()
@@ -143,7 +184,7 @@ const scrollToBottom = async () => {
 const fetchRoleDetail = async () => {
   try {
     const res = await getRoleDetail(roleId.value)
-    currentRole.value = res
+    currentRole.value = adaptRoleData(res)
   } catch (error) {
     console.error(error)
   }
@@ -153,7 +194,8 @@ const fetchRoleDetail = async () => {
 const fetchHistory = async () => {
   try {
     const res = await getChatHistory(roleId.value)
-    messages.value = res.map(item => ({
+    const validMessages = res.filter(item => item.role !== 'system')
+    messages.value = validMessages.map(item => ({
       id: item.id,
       role: item.role,
       content: item.content,
@@ -170,7 +212,6 @@ const sendMessage = async () => {
   const text = inputText.value.trim()
   if (!text && !sending.value) return
   
-  // 1. 添加用户消息
   messages.value.push({
     id: Date.now(),
     role: 'user',
@@ -183,7 +224,6 @@ const sendMessage = async () => {
   
   sending.value = true
   
-  // 2. 添加 AI Loading 消息
   const aiMsgId = Date.now() + 1
   const aiMsgIndex = messages.value.push({
     id: aiMsgId,
@@ -194,28 +234,44 @@ const sendMessage = async () => {
   
   scrollToBottom()
 
+  const token = localStorage.getItem('token')
+  const formData = new FormData()
+  formData.append('message', text)
+  
   try {
-    // 3. 调用 API (Mock返回完整文本)
-    const responseText = await sendChatMessage(roleId.value, { message: text })
-    
-    // 4. 模拟打字机效果
-    const aiMsg = messages.value[aiMsgIndex]
-    aiMsg.loading = false
-    
-    let i = 0
-    const timer = setInterval(() => {
-      aiMsg.content += responseText.charAt(i)
-      i++
-      scrollToBottom() // 实时滚动
-      if (i >= responseText.length) {
-        clearInterval(timer)
+    await fetchEventSource(`/api/chat/${roleId.value}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      },
+      body: formData,
+      async onopen(response) {
+        if (response.ok) {
+          messages.value[aiMsgIndex].loading = false
+          return
+        } else if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+           throw new Error('Client Error')
+        }
+      },
+      onmessage(msg) {
+        if (msg.data === '[DONE]') {
+          sending.value = false
+          return
+        }
+        messages.value[aiMsgIndex].content += msg.data
+        scrollToBottom()
+      },
+      onerror(err) {
+        console.error('SSE Error:', err)
         sending.value = false
+        throw err
       }
-    }, 30) // 30ms 一个字
-    
-  } catch (error) {
+    })
+  } catch (err) {
     messages.value[aiMsgIndex].loading = false
-    messages.value[aiMsgIndex].content = '出错了，请稍后再试。'
+    if (!messages.value[aiMsgIndex].content) {
+        messages.value[aiMsgIndex].content = '连接断开，请重试。'
+    }
     sending.value = false
   }
 }
@@ -229,14 +285,14 @@ const handleReset = async () => {
   try {
     await resetChat(roleId.value)
     Message.success('对话已重置')
-    messages.value = [] // Mock环境直接清空
+    messages.value = [] 
   } catch (error) {
     // error
   }
 }
 
 const handleFileSelect = () => {
-    Message.info('图片上传功能暂未实现 (Mock)')
+    Message.info('图片上传功能暂未实现')
 }
 
 onMounted(() => {
@@ -246,7 +302,6 @@ onMounted(() => {
   }
 })
 
-// 监听路由参数变化 (切换角色)
 watch(() => route.params.roleId, (newId) => {
   if (newId) {
     currentRole.value = null
@@ -270,7 +325,7 @@ watch(() => route.params.roleId, (newId) => {
   transition: background-image 0.5s ease;
 }
 
-/* 背景遮罩：保持背景可见但柔和 */
+/* 背景遮罩 */
 .bg-overlay {
   position: absolute;
   top: 0;
@@ -282,7 +337,7 @@ watch(() => route.params.roleId, (newId) => {
   z-index: 0;
 }
 
-/* 头部悬浮设计 */
+/* 头部悬浮 */
 .chat-header-wrapper {
   position: absolute;
   top: 0;
@@ -327,6 +382,9 @@ watch(() => route.params.roleId, (newId) => {
   padding: 2px;
   border: 2px solid transparent;
   border-radius: 50%;
+  display: flex; 
+  justify-content: center;
+  align-items: center;
 }
 
 .meta .name {
@@ -358,12 +416,21 @@ watch(() => route.params.roleId, (newId) => {
   z-index: 1;
   flex: 1;
   overflow-y: auto;
-  padding: 80px 20px 100px 20px; /* 留出头部和底部空间 */
+  /* 
+    关键修复：
+    顶部 padding = header wrapper height (~96px) + extra space
+    底部 padding = footer height (~100px) + extra space
+    确保内容不被遮挡
+  */
+  padding: 100px 20px 120px 20px; 
 }
 
 .message-list {
   max-width: 700px;
   margin: 0 auto;
+  /* 移除 height: 100%，让内容自然撑开，否则滚动条可能异常 */
+  display: flex;
+  flex-direction: column;
 }
 
 .date-divider {
@@ -376,9 +443,24 @@ watch(() => route.params.roleId, (newId) => {
   background: rgba(255,255,255,0.4);
   border-radius: 10px;
   display: inline-block;
-  position: relative;
-  left: 50%;
-  transform: translateX(-50%);
+  align-self: center;
+}
+
+.empty-chat-tip {
+  margin-top: 40px; 
+  display: flex;
+  justify-content: center;
+  opacity: 0.8;
+  width: 100%;
+}
+
+.tip-pill {
+  background: rgba(255,255,255,0.6);
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 13px;
+  color: #8D6E63;
+  backdrop-filter: blur(4px);
 }
 
 .message-item {
@@ -386,6 +468,7 @@ watch(() => route.params.roleId, (newId) => {
   margin-bottom: 24px;
   gap: 12px;
   align-items: flex-end;
+  width: 100%;
 }
 
 .message-item.user {
@@ -414,7 +497,7 @@ watch(() => route.params.roleId, (newId) => {
   word-break: break-word;
 }
 
-/* AI气泡：半透明毛玻璃，融入背景 */
+/* AI气泡：半透明毛玻璃 */
 .assistant .content {
   background: rgba(255, 255, 255, 0.75);
   backdrop-filter: blur(10px);
@@ -426,7 +509,7 @@ watch(() => route.params.roleId, (newId) => {
 
 /* 用户气泡：主题色 */
 .user .content {
-  background-color: var(--primary-6); /* 会被内联样式覆盖为主题色 */
+  background-color: var(--primary-6); 
   color: #fff;
   border-bottom-right-radius: 4px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
@@ -439,8 +522,9 @@ watch(() => route.params.roleId, (newId) => {
   left: 0;
   right: 0;
   z-index: 10;
-  padding: 20px 24px 24px 24px;
-  background: linear-gradient(to top, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0) 100%);
+  /* 增加 padding 以确保美观 */
+  padding: 20px 24px 30px 24px;
+  background: linear-gradient(to top, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0) 100%);
 }
 
 .input-bar {
@@ -451,7 +535,7 @@ watch(() => route.params.roleId, (newId) => {
   gap: 12px;
   background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(20px);
-  padding: 8px 8px 8px 16px; /* 调整padding */
+  padding: 8px 8px 8px 16px;
   border-radius: 28px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.6);
@@ -463,16 +547,15 @@ watch(() => route.params.roleId, (newId) => {
 
 .input-wrapper {
   flex: 1;
-  display: flex; /* 确保textarea垂直居中 */
+  display: flex;
 }
 
-/* 深度覆盖 Arco Textarea 样式 */
 .input-wrapper :deep(.arco-textarea-wrapper) {
   background: transparent;
   border: none;
   padding: 0;
-  box-shadow: none; /* 去除focus时的阴影 */
-  transition: none; /* 去除过渡 */
+  box-shadow: none;
+  transition: none;
 }
 
 .input-wrapper :deep(.arco-textarea-wrapper:hover),
@@ -489,11 +572,10 @@ watch(() => route.params.roleId, (newId) => {
   resize: none;
   color: #4E342E;
   font-size: 15px;
-  caret-color: #FF9A2E; /* 光标颜色改为暖橙色 */
+  caret-color: #FF9A2E;
   line-height: 1.5;
 }
 
-/* 去除 focus 时的默认 outline */
 .input-wrapper :deep(.arco-textarea:focus) {
   outline: none;
   box-shadow: none;

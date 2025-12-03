@@ -23,7 +23,7 @@
           <a-avatar :size="40" :image-url="role.avatarUrl" class="role-avatar" />
           <div class="role-info">
             <div class="role-name">{{ role.name }}</div>
-            <div class="role-tag">{{ role.roleSetting }}</div>
+            <!-- 移除 roleSetting 展示 -->
           </div>
           <div class="active-indicator" :style="{ backgroundColor: role.themeColor || '#FF9A2E' }"></div>
         </div>
@@ -140,6 +140,7 @@ import { getDocList, deleteDoc } from '@/api/doc'
 import { getRoleList } from '@/api/role'
 import { Message } from '@arco-design/web-vue'
 import { IconUpload, IconFile, IconFilePdf, IconDelete, IconFolder, IconUserGroup } from '@arco-design/web-vue/es/icon'
+import { adaptRoleData } from '@/utils/roleAdapter' // 引入适配器
 
 const loading = ref(false)
 const data = ref([])
@@ -161,8 +162,8 @@ const filteredRoles = computed(() => {
   if (!roleSearchKeyword.value) return roles.value
   const kw = roleSearchKeyword.value.toLowerCase()
   return roles.value.filter(r => 
-    r.name.toLowerCase().includes(kw) || 
-    r.roleSetting.toLowerCase().includes(kw)
+    r.name.toLowerCase().includes(kw)
+    // 移除对 roleSetting 的搜索匹配，或者保留搜索但不展示
   )
 })
 
@@ -170,7 +171,9 @@ const filteredRoles = computed(() => {
 const init = async () => {
   try {
     const roleRes = await getRoleList()
-    roles.value = roleRes
+    // 使用适配器处理数据，确保 visual 等字段可用
+    roles.value = roleRes.map(adaptRoleData)
+    
     if (roles.value.length > 0) {
       currentRoleId.value = roles.value[0].id
       fetchDocs()
@@ -210,7 +213,7 @@ const handleUploadSuccess = (fileItem) => {
 }
 
 const handleUploadError = () => {
-  Message.error('上传失败 (Mock)')
+  Message.error('上传失败')
 }
 
 const handleDelete = async (record) => {
@@ -301,21 +304,16 @@ onMounted(() => {
 .role-info {
   flex: 1;
   overflow: hidden;
+  /* 垂直居中 */
+  display: flex; 
+  align-items: center;
 }
 
 .role-name {
   font-size: 15px;
   font-weight: 600;
   color: #4E342E;
-  margin-bottom: 2px;
-}
-
-.role-tag {
-  font-size: 12px;
-  color: #8D6E63;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* margin-bottom: 2px; */ /* 只有一行文字了，不需要 margin */
 }
 
 .active-indicator {
