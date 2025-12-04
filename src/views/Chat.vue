@@ -101,22 +101,25 @@
               :style="msg.role === 'user' ? { background: currentRole?.themeColor || 'var(--primary-6)' } : {}"
             ></div>
 
-            <!-- 工具调用展示区 (移到气泡下方) -->
+            <!-- 工具调用展示区 (附属标签) -->
             <div v-if="msg.toolCalls && msg.toolCalls.length > 0" class="tool-calls-container">
-              <a-collapse :bordered="false" expand-icon-position="left">
+              <a-collapse :bordered="false" expand-icon-position="right" class="minimal-collapse">
                 <template #expand-icon="{ active }">
-                   <icon-caret-right :style="{ transform: active ? 'rotate(90deg)' : 'none', marginRight: '8px', fontSize: '12px', color: '#999' }" />
+                   <icon-caret-right :style="{ transform: active ? 'rotate(90deg)' : 'none', color: '#ccc', fontSize: '12px' }" />
                 </template>
-                <a-collapse-item v-for="(tool, idx) in msg.toolCalls" :key="idx" :header="`使用工具: ${tool.name || '未知工具'}`">
+                <a-collapse-item v-for="(tool, idx) in msg.toolCalls" :key="idx" header="工具调用">
                   <div class="tool-detail">
-                    <div class="tool-section">
-                      <span class="tool-label">输入:</span>
-                      <!-- 格式化展示 JSON -->
-                      <pre class="code-block">{{ formatJson(tool.args) }}</pre>
+                    <div class="tool-row">
+                       <span class="tool-key">工具:</span>
+                       <span class="tool-text">{{ tool.name }}</span>
                     </div>
-                    <div class="tool-section" v-if="tool.result">
-                      <span class="tool-label">结果:</span>
-                      <pre class="code-block result">{{ tool.result }}</pre>
+                    <div class="tool-row">
+                       <span class="tool-key">输入:</span>
+                       <span class="tool-text input">{{ formatJson(tool.args) }}</span>
+                    </div>
+                    <div class="tool-row" v-if="tool.result">
+                       <span class="tool-key">输出:</span>
+                       <span class="tool-text result">{{ tool.result }}</span>
                     </div>
                   </div>
                 </a-collapse-item>
@@ -166,7 +169,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick, computed, watch } from 'vue'
+import { ref, onMounted, nextTick, computed, watch, reactive } from 'vue'
 import { useRoute } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { getRoleDetail } from '@/api/role'
@@ -334,14 +337,15 @@ const sendMessage = async () => {
   
   sending.value = true
   
-  const aiMsgId = Date.now() + 1
-  const aiMsgIndex = messages.value.push({
-    id: aiMsgId,
+  // 使用 reactive 对象确保深层响应式，并直接引用
+  const aiMsg = reactive({
+    id: Date.now() + 1,
     role: 'assistant',
     content: '',
     loading: true,
     toolCalls: [] 
-  }) - 1
+  })
+  messages.value.push(aiMsg)
   
   scrollToBottom()
 
@@ -358,7 +362,7 @@ const sendMessage = async () => {
       body: formData,
       async onopen(response) {
         if (response.ok) {
-          messages.value[aiMsgIndex].loading = false
+          aiMsg.loading = false
           return
         } else if (response.status >= 400 && response.status < 500 && response.status !== 429) {
            throw new Error('Client Error')
@@ -369,7 +373,81 @@ const sendMessage = async () => {
           sending.value = false
           return
         }
-        messages.value[aiMsgIndex].content += msg.data
+        
+        const dataStr = msg.data
+        let isToolMsg = false
+        
+        // 尝试解析 JSON
+        try {
+            // 不再限制以 { 开头，直接尝试解析
+            const dataObj = JSON.parse(dataStr)
+            
+            // 检查是否为对象
+            if (dataObj && typeof dataObj === 'object') {
+                // 检查是否包含工具相关字段 (兼容驼峰和下划线)
+                const toolCallRaw = dataObj.toolCall || dataObj.tool_call
+                const toolResultRaw = dataObj.toolExecResult || dataObj.tool_exec_result || dataObj.toolResult || dataObj.tool_result
+
+                if (toolCallRaw || toolResultRaw) {
+                    isToolMsg = true
+                    
+                    // 1. 处理工具调用 (Tool Call)
+                    if (toolCallRaw) {
+                        let toolName = 'Tool Call'
+                        let toolArgs = toolCallRaw
+                        
+                        // 如果是字符串，尝试二次解析
+                        if (typeof toolCallRaw === 'string') {
+                            try {
+                                // 尝试解析内部的 JSON 字符串
+                                const parsed = JSON.parse(toolCallRaw)
+                                if (Array.isArray(parsed) && parsed.length > 0) {
+                                    toolName = parsed[0].name || toolName
+                                    toolArgs = parsed[0].arguments || toolArgs
+                                } else if (!Array.isArray(parsed)) {
+                                    toolName = parsed.name || toolName
+                                    toolArgs = parsed.arguments || toolArgs
+                                }
+                            } catch (e) {
+                                // 二次解析失败，使用原始字符串
+                            }
+                        } else if (typeof toolCallRaw === 'object') {
+                             // 如果直接传回了对象
+                             if (Array.isArray(toolCallRaw) && toolCallRaw.length > 0) {
+                                 toolName = toolCallRaw[0].name || toolName
+                                 toolArgs = toolCallRaw[0].arguments || toolArgs
+                             } else {
+                                 toolName = toolCallRaw.name || toolName
+                                 toolArgs = toolCallRaw.arguments || toolArgs
+                             }
+                        }
+
+                        // 推入数组
+                        aiMsg.toolCalls.push({
+                            name: toolName,
+                            args: toolArgs,
+                            result: null
+                        })
+                    }
+
+                    // 2. 处理工具结果 (Tool Result)
+                    if (toolResultRaw) {
+                        const tools = aiMsg.toolCalls
+                        // 将结果绑定到最近的一个工具调用上
+                        if (tools.length > 0) {
+                            tools[tools.length - 1].result = toolResultRaw
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            // JSON 解析失败，说明是普通文本
+        }
+
+        // 如果不是工具消息，则认为是 AI 的普通回复文本
+        if (!isToolMsg) {
+           aiMsg.content += dataStr
+        }
         scrollToBottom()
       },
       onerror(err) {
@@ -379,9 +457,9 @@ const sendMessage = async () => {
       }
     })
   } catch (err) {
-    messages.value[aiMsgIndex].loading = false
-    if (!messages.value[aiMsgIndex].content) {
-        messages.value[aiMsgIndex].content = '连接断开，请重试。'
+    aiMsg.loading = false
+    if (!aiMsg.content) {
+        aiMsg.content = '连接断开，请重试。'
     }
     sending.value = false
   }
@@ -597,95 +675,98 @@ watch(() => route.params.roleId, (newId) => {
   margin-left: 4px;
 }
 
-/* 工具调用样式 - 附属标签风格 */
+/* 工具调用样式 - 附属标签风格 (优化版) */
 .tool-calls-container {
-  margin-top: -6px;
-  margin-left: 12px;
-  margin-bottom: 4px;
-  background: rgba(255, 255, 255, 0.85);
-  border-bottom-left-radius: 12px;
-  border-bottom-right-radius: 12px;
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
+  margin-top: 2px; 
+  margin-left: 0;
+  margin-bottom: 8px;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 8px;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  border-top: none;
-  width: fit-content;
-  max-width: 95%;
+  border: none; 
+  min-width: 120px; /* 给一个最小宽度 */
+  width: fit-content; 
+  max-width: 100%;
   font-size: 12px;
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.04);
   z-index: 0;
 }
 
-/* 覆盖 Arco Collapse 样式以适应半透明 */
-.tool-calls-container :deep(.arco-collapse-item-header) {
+.tool-calls-container:hover {
+    background: rgba(0, 0, 0, 0.06);
+}
+
+/* 极简折叠面板 */
+.minimal-collapse :deep(.arco-collapse-item-header) {
   background: transparent;
-  border-bottom: 1px solid rgba(0,0,0,0.05);
-  font-size: 13px;
-  color: #555;
-  padding: 8px 12px;
-  border: none;
-  display: flex;
-  align-items: center;
-}
-
-/* 图标容器：固定宽度，防止挤压 */
-.tool-calls-container :deep(.arco-collapse-item-icon) {
-  margin-right: 10px !important;
-  width: 16px;
-  height: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0; /* 关键：防止被压缩导致重叠 */
-}
-
-/* 标题样式 */
-.tool-calls-container :deep(.arco-collapse-item-header-title) {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  line-height: 1.5;
-  margin-left: 20px !important; /* 双重保险：给文字也加左边距 */
-}
-
-.tool-calls-container :deep(.arco-collapse-item-content) {
-  background: rgba(255, 255, 255, 0.4);
-  padding: 8px 12px;
+  border-bottom: none;
   font-size: 12px;
+  color: #999;
+  padding: 4px 8px; /* 增加垂直padding */
+  min-height: 28px; /* 增加最小高度 */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+}
+
+/* 调整图标和标题 */
+.minimal-collapse :deep(.arco-collapse-item-header-title) {
+  font-weight: normal;
+  margin-right: 24px; /* 增加右边距，防止与箭头重叠 */
+  font-family: monospace;
+  line-height: 20px;
+}
+
+/* 内容区域优化 */
+.minimal-collapse :deep(.arco-collapse-item-content) {
+  background: transparent;
+  padding: 0 8px 6px 8px;
+  font-size: 12px;
+  border-top: none;
 }
 
 .tool-detail {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-}
-
-.tool-section {
-  display: flex;
-  flex-direction: column;
   gap: 4px;
+  padding-top: 2px;
 }
 
-.tool-label {
-  font-weight: bold;
-  color: #666;
+.tool-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    overflow: hidden;
 }
 
-.code-block {
-  margin: 0;
-  background: rgba(0,0,0,0.05);
-  padding: 8px;
-  border-radius: 6px;
-  white-space: pre-wrap;
-  word-break: break-all;
-  font-family: monospace;
-  color: #333;
+.tool-key {
+    color: #999;
+    flex-shrink: 0;
+    font-size: 11px;
+    width: 32px; /* 对齐标签 */
+    text-align: right;
 }
 
-.code-block.result {
-  color: #0057b7; /* 稍微区分一下结果颜色 */
+/* 移除Input/Output标签，改用更自然的文本流 */
+.tool-tag {
+    display: none;
+}
+
+.tool-text {
+    font-family: monospace;
+    color: #777;
+    white-space: pre-wrap;
+    word-break: break-all;
+    line-height: 1.3;
+    font-size: 11px;
+}
+
+.tool-text.input {
+    color: #666;
+}
+
+.tool-text.result {
+    color: #444;
 }
 
 .content {

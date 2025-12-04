@@ -17,14 +17,8 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://110.40.207.231:7979',
+        target: 'http://localhost:7979', //110.40.207.231
         changeOrigin: true,
-        // 有时候后端会校验 Referer/Origin，这里可以手动修正（虽然 changeOrigin 应该已经处理了 Host）
-        // configure: (proxy, options) => {
-        //   proxy.on('proxyReq', (proxyReq, req, res) => {
-        //     proxyReq.setHeader('Origin', 'http://110.40.207.231:7979');
-        //   });
-        // }
       }
     }
   }
