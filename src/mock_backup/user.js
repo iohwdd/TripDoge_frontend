@@ -8,7 +8,7 @@ const tokens = {
 const users = {
   'admin-token': {
     id: 1,
-    email: 'admin@tripdoge.com',
+    email: '884217544@qq.com',
     nickname: 'Admin Doge',
     avatarUrl: 'https://p1-arco.byteimg.com/tos-cn-i-uwbnlip3yd/3ee5f13fb09879ecb5185e440cef6eb9.png~tplv-uwbnlip3yd-webp.webp',
     status: 1
@@ -22,7 +22,7 @@ export default [
     const { email, password } = body
     
     // 简单模拟验证
-    if (email === 'admin@tripdoge.com' && password === '123456') {
+    if (email === '884217544@qq.com' && password === '123123') {
       return {
         code: 200,
         message: '登录成功',
@@ -54,7 +54,7 @@ export default [
       code: 200,
       message: '验证码发送成功',
       data: {
-        code: '123456'
+        code: '123123'
       }
     }
   }),

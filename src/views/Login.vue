@@ -41,7 +41,7 @@
           </div>
           
           <div class="mock-tip">
-            默认账号: admin@tripdoge.com / 123456
+            默认账号: 884217544@qq.com / 123123
           </div>
         </a-form>
       </div>
@@ -61,8 +61,8 @@ const userStore = useUserStore()
 const loading = ref(false)
 
 const form = reactive({
-  email: 'admin@tripdoge.com',
-  password: '123456'
+  email: '884217544@qq.com',
+  password: '123123'
 })
 
 const handleSubmit = async ({ values, errors }) => {

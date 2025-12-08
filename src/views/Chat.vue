@@ -35,6 +35,12 @@
         </div>
         
         <div class="actions">
+          <a-tooltip :content="isVoiceEnabled ? '关闭语音' : '开启语音'">
+            <a-button type="text" class="action-btn" shape="circle" @click="isVoiceEnabled = !isVoiceEnabled">
+              <icon-sound v-if="isVoiceEnabled" />
+              <icon-mute v-else />
+            </a-button>
+          </a-tooltip>
           <a-tooltip content="重置记忆">
             <a-button type="text" class="action-btn" shape="circle" @click="handleReset">
               <icon-refresh />
@@ -175,7 +181,7 @@ import { useUserStore } from '@/stores/user'
 import { getRoleDetail } from '@/api/role'
 import { getChatHistory, resetChat } from '@/api/chat'
 import { Message } from '@arco-design/web-vue'
-import { IconRefresh, IconImage, IconLeft, IconSend, IconUser, IconCaretRight } from '@arco-design/web-vue/es/icon'
+import { IconRefresh, IconImage, IconLeft, IconSend, IconUser, IconCaretRight, IconSound, IconMute } from '@arco-design/web-vue/es/icon'
 import MarkdownIt from 'markdown-it'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { adaptRoleData } from '@/utils/roleAdapter'
@@ -191,6 +197,64 @@ const messages = ref([])
 const inputText = ref('')
 const sending = ref(false)
 const chatBodyRef = ref(null)
+
+// 语音播报相关
+const isVoiceEnabled = ref(false)
+const audioContext = ref(null)
+const nextAudioTime = ref(0)
+// 采样率，根据后端 QwenRealtimeTtsService 默认值设定，通常为 24000 或 16000
+const AUDIO_SAMPLE_RATE = 24000 
+
+// 初始化音频上下文
+const initAudioContext = () => {
+  const AudioContext = window.AudioContext || window.webkitAudioContext
+  if (!audioContext.value) {
+    audioContext.value = new AudioContext()
+  }
+  if (audioContext.value.state === 'suspended') {
+    audioContext.value.resume()
+  }
+}
+
+// 播放 PCM 音频分片
+const playPcmChunk = (base64Data) => {
+  if (!audioContext.value) return
+
+  try {
+    const binaryString = window.atob(base64Data)
+    const len = binaryString.length
+    const bytes = new Uint8Array(len)
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryString.charCodeAt(i)
+    }
+    
+    // 16-bit PCM little endian -> Float32
+    const int16Data = new Int16Array(bytes.buffer)
+    const float32Data = new Float32Array(int16Data.length)
+    for (let i = 0; i < int16Data.length; i++) {
+      // 归一化到 [-1.0, 1.0]
+      float32Data[i] = int16Data[i] / 32768.0
+    }
+
+    const buffer = audioContext.value.createBuffer(1, float32Data.length, AUDIO_SAMPLE_RATE)
+    buffer.getChannelData(0).set(float32Data)
+
+    const source = audioContext.value.createBufferSource()
+    source.buffer = buffer
+    source.connect(audioContext.value.destination)
+
+    const currentTime = audioContext.value.currentTime
+    // 如果下一次播放时间小于当前时间，说明发生了延迟或刚开始，立即播放
+    if (nextAudioTime.value < currentTime) {
+      nextAudioTime.value = currentTime
+    }
+    
+    source.start(nextAudioTime.value)
+    nextAudioTime.value += buffer.duration
+  } catch (e) {
+    console.error('Audio decode error:', e)
+  }
+}
 
 // 渲染 Markdown
 const renderMarkdown = (text) => {
@@ -324,6 +388,12 @@ const fetchHistory = async () => {
 const sendMessage = async () => {
   const text = inputText.value.trim()
   if (!text && !sending.value) return
+
+  // 初始化音频环境
+  if (isVoiceEnabled.value) {
+    initAudioContext()
+    nextAudioTime.value = 0 // 重置播放时间戳
+  }
   
   messages.value.push({
     id: Date.now(),
@@ -352,6 +422,9 @@ const sendMessage = async () => {
   const token = localStorage.getItem('token')
   const formData = new FormData()
   formData.append('message', text)
+  if (isVoiceEnabled.value) {
+    formData.append('streamAudio', true)
+  }
   
   try {
     await fetchEventSource(`/api/chat/${roleId.value}`, {
@@ -369,6 +442,19 @@ const sendMessage = async () => {
         }
       },
       onmessage(msg) {
+        // 优先处理音频事件
+        if (msg.event === 'audio') {
+           if (isVoiceEnabled.value) {
+             try {
+                const audioData = JSON.parse(msg.data)
+                if (audioData.audio_delta) {
+                    playPcmChunk(audioData.audio_delta)
+                }
+             } catch(e) { /* ignore */ }
+           }
+           return
+        }
+
         if (msg.data === '[DONE]') {
           sending.value = false
           return
