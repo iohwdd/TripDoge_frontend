@@ -35,12 +35,31 @@
         </div>
         
         <div class="actions">
-          <a-tooltip :content="isVoiceEnabled ? '关闭语音' : '开启语音'">
-            <a-button type="text" class="action-btn" shape="circle" @click="isVoiceEnabled = !isVoiceEnabled">
+          <a-popover trigger="click" position="bottom" content-class="voice-popover">
+            <a-button type="text" class="action-btn" shape="circle">
               <icon-sound v-if="isVoiceEnabled" />
               <icon-mute v-else />
             </a-button>
-          </a-tooltip>
+            <template #content>
+              <div class="voice-config-panel">
+                <div class="panel-row">
+                  <span class="panel-label">语音播报</span>
+                  <a-switch v-model="isVoiceEnabled" size="small" />
+                </div>
+                <div v-if="isVoiceEnabled" class="voice-selector">
+                  <div class="panel-divider"></div>
+                  <div class="option-title">音色选择</div>
+                  <a-radio-group v-model="selectedVoice" direction="vertical" class="voice-radio-group">
+                    <a-radio v-for="opt in voiceOptions" :key="opt.value" :value="opt.value">
+                      <span class="voice-name">{{ opt.label }}</span>
+                      <span class="voice-desc">{{ opt.desc }}</span>
+                    </a-radio>
+                  </a-radio-group>
+                </div>
+              </div>
+            </template>
+          </a-popover>
+
           <a-tooltip content="重置记忆">
             <a-button type="text" class="action-btn" shape="circle" @click="handleReset">
               <icon-refresh />
@@ -204,6 +223,18 @@ const audioContext = ref(null)
 const nextAudioTime = ref(0)
 // 采样率，根据后端 QwenRealtimeTtsService 默认值设定，通常为 24000 或 16000
 const AUDIO_SAMPLE_RATE = 24000 
+
+const voiceOptions = [
+  { label: '芊悦', value: 'Cherry', desc: '亲切自然' },
+  { label: '苏瑶', value: 'Serena', desc: '温柔小姐姐' },
+  { label: '晨煦', value: 'Ethan', desc: '阳光活力' },
+  { label: '千雪', value: 'Chelsie', desc: '二次元' },
+]
+const selectedVoice = ref(localStorage.getItem('tripdog_voice') || 'Cherry')
+
+watch(selectedVoice, (val) => {
+  localStorage.setItem('tripdog_voice', val)
+})
 
 // 初始化音频上下文
 const initAudioContext = () => {
@@ -424,6 +455,7 @@ const sendMessage = async () => {
   formData.append('message', text)
   if (isVoiceEnabled.value) {
     formData.append('streamAudio', true)
+    formData.append('voice', selectedVoice.value)
   }
   
   try {
@@ -971,5 +1003,58 @@ watch(() => route.params.roleId, (newId) => {
 @keyframes typing {
   0%, 100% { transform: scale(0.6); opacity: 0.6; }
   50% { transform: scale(1); opacity: 1; }
+}
+
+/* 语音配置面板样式 */
+.voice-config-panel {
+  width: 200px;
+  padding: 4px;
+}
+
+.panel-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+}
+
+.panel-label {
+  font-size: 14px;
+  color: #1d2129;
+}
+
+.panel-divider {
+  height: 1px;
+  background-color: #f2f3f5;
+  margin: 8px 0;
+}
+
+.option-title {
+  font-size: 12px;
+  color: #86909c;
+  margin-bottom: 8px;
+}
+
+.voice-radio-group {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.voice-radio-group :deep(.arco-radio) {
+  margin-right: 0;
+  padding: 4px 0;
+}
+
+.voice-name {
+  font-size: 14px;
+  color: #1d2129;
+  margin-right: 8px;
+}
+
+.voice-desc {
+  font-size: 12px;
+  color: #86909c;
 }
 </style>
