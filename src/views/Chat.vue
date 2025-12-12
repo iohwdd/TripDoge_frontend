@@ -6,16 +6,13 @@
     <!-- 头部 (灵动岛风格悬浮) -->
     <div class="chat-header-wrapper">
       <div class="chat-header">
-        <a-button type="text" class="back-btn" @click="$router.push('/roles')">
+        <a-button type="text" class="back-btn" @click="backToRoles">
           <icon-left />
         </a-button>
 
         <div class="role-info" v-if="currentRole">
           <div class="avatar-ring" :style="{ borderColor: currentRole?.themeColor || 'var(--primary-6)' }">
              <a-avatar :size="40">
-                <template #trigger-icon>
-                  <icon-user />
-                </template>
                 <img 
                   :src="currentRole.avatarUrl" 
                   @error="(e) => { e.target.style.display='none'; e.target.nextElementSibling.style.display='flex' }"
@@ -35,30 +32,38 @@
         </div>
         
         <div class="actions">
-          <a-popover trigger="click" position="bottom" content-class="voice-popover">
-            <a-button type="text" class="action-btn" shape="circle">
-              <icon-sound v-if="isVoiceEnabled" />
-              <icon-mute v-else />
+          <a-tooltip content="语音播报配置" position="bottom">
+            <a-popover trigger="click" position="bottom" content-class="voice-popover">
+              <a-button type="text" class="action-btn" shape="circle">
+                <icon-sound v-if="isVoiceEnabled" />
+                <icon-mute v-else />
+              </a-button>
+              <template #content>
+                <div class="voice-config-panel">
+                  <div class="panel-row">
+                    <span class="panel-label">语音播报</span>
+                    <a-switch v-model="isVoiceEnabled" size="small" />
+                  </div>
+                  <div v-if="isVoiceEnabled" class="voice-selector">
+                    <div class="panel-divider"></div>
+                    <div class="option-title">音色选择</div>
+                    <a-radio-group v-model="selectedVoice" direction="vertical" class="voice-radio-group">
+                      <a-radio v-for="opt in voiceOptions" :key="opt.value" :value="opt.value">
+                        <span class="voice-name">{{ opt.label }}</span>
+                        <span class="voice-desc">{{ opt.desc }}</span>
+                      </a-radio>
+                    </a-radio-group>
+                  </div>
+                </div>
+              </template>
+            </a-popover>
+          </a-tooltip>
+
+          <a-tooltip content="旅行计划师" position="bottom">
+            <a-button type="text" class="action-btn" shape="circle" @click="isSkillPanelOpen = true">
+              <icon-robot />
             </a-button>
-            <template #content>
-              <div class="voice-config-panel">
-                <div class="panel-row">
-                  <span class="panel-label">语音播报</span>
-                  <a-switch v-model="isVoiceEnabled" size="small" />
-                </div>
-                <div v-if="isVoiceEnabled" class="voice-selector">
-                  <div class="panel-divider"></div>
-                  <div class="option-title">音色选择</div>
-                  <a-radio-group v-model="selectedVoice" direction="vertical" class="voice-radio-group">
-                    <a-radio v-for="opt in voiceOptions" :key="opt.value" :value="opt.value">
-                      <span class="voice-name">{{ opt.label }}</span>
-                      <span class="voice-desc">{{ opt.desc }}</span>
-                    </a-radio>
-                  </a-radio-group>
-                </div>
-              </div>
-            </template>
-          </a-popover>
+          </a-tooltip>
 
           <a-tooltip content="重置记忆">
             <a-button type="text" class="action-btn" shape="circle" @click="handleReset">
@@ -68,6 +73,103 @@
         </div>
       </div>
     </div>
+    
+    <!-- 技能抽屉 -->
+    <a-drawer
+      :visible="isSkillPanelOpen"
+      @ok="isSkillPanelOpen = false"
+      @cancel="isSkillPanelOpen = false"
+      placement="right"
+      :width="420"
+      :footer="false"
+      unmountOnClose
+      @open="() => { activeTab = 'plan'; loadHistory(); }"
+    >
+      <template #title>
+        <div class="drawer-title">
+          <icon-robot class="drawer-icon" />
+          <span>旅行定制师</span>
+        </div>
+      </template>
+
+      <a-tabs v-model:active-key="activeTab">
+        <a-tab-pane key="plan" title="生成行程">
+          <div class="skill-form">
+            <a-form :model="tripPlan" layout="vertical">
+              <a-form-item field="destination" label="目的地">
+                <a-input v-model="tripPlan.destination" placeholder="例如：三亚、西安、东京" />
+              </a-form-item>
+              
+              <a-form-item field="days" label="游玩天数">
+                <a-input-number v-model="tripPlan.days" :min="1" :max="30" mode="button" />
+              </a-form-item>
+              
+              <a-form-item field="people" label="出行人员">
+                <a-radio-group v-model="tripPlan.people" type="button">
+                  <a-radio value="单人">单人</a-radio>
+                  <a-radio value="情侣">情侣</a-radio>
+                  <a-radio value="亲子">亲子</a-radio>
+                  <a-radio value="朋友">朋友</a-radio>
+                  <a-radio value="家庭">家庭</a-radio>
+                </a-radio-group>
+              </a-form-item>
+              
+              <a-form-item field="budget" label="预算等级">
+                 <a-radio-group v-model="tripPlan.budget" type="button">
+                  <a-radio value="穷游">穷游</a-radio>
+                  <a-radio value="适中">适中</a-radio>
+                  <a-radio value="豪华">豪华</a-radio>
+                </a-radio-group>
+              </a-form-item>
+              
+              <a-form-item field="preferences" label="偏好 (多选)">
+                <a-checkbox-group v-model="tripPlan.preferences">
+                  <a-grid :cols="2" :colGap="12" :rowGap="12">
+                    <a-grid-item v-for="opt in preferencesOptions" :key="opt">
+                       <a-checkbox :value="opt">{{ opt }}</a-checkbox>
+                    </a-grid-item>
+                  </a-grid>
+                </a-checkbox-group>
+              </a-form-item>
+
+              <div class="drawer-actions">
+                <a-button type="primary" long @click="submitTripPlan" :disabled="!tripPlan.destination">
+                  <template #icon><icon-send /></template>
+                  生成行程方案
+                </a-button>
+              </div>
+            </a-form>
+          </div>
+        </a-tab-pane>
+
+        <a-tab-pane key="history" title="历史记录">
+          <div class="history-panel">
+            <a-spin :loading="historyLoading">
+              <div v-if="historyList.length === 0" class="history-empty">暂无历史记录</div>
+              <div v-else class="history-list">
+                <div v-for="item in historyList" :key="item.id" class="history-item">
+                  <div class="history-main">
+                    <div class="history-title">{{ item.destination || '旅行方案' }}</div>
+                    <div class="history-meta">
+                      <span>{{ item.days ? item.days + '天' : '' }}</span>
+                      <span v-if="item.people"> · {{ item.people }}</span>
+                      <span v-if="item.createdAt"> · {{ item.createdAt }}</span>
+                    </div>
+                    <div class="history-tags" v-if="item.preferences && item.preferences.length">
+                      <span v-for="tag in item.preferences" :key="tag" class="tag">{{ tag }}</span>
+                    </div>
+                  </div>
+                  <div class="history-actions">
+                    <a-button type="outline" size="small" @click="handlePreviewMd(item)">预览</a-button>
+                    <a-button type="outline" size="small" @click="handleDownloadMd(item)">下载MD</a-button>
+                  </div>
+                </div>
+              </div>
+            </a-spin>
+          </div>
+        </a-tab-pane>
+      </a-tabs>
+    </a-drawer>
 
     <!-- 消息列表 (滚动区域) -->
     <div class="chat-body" ref="chatBodyRef">
@@ -113,15 +215,59 @@
           
           <div class="content-wrapper">
             
+            <!-- 工作流状态卡片 (新增) -->
+            <div v-if="msg.workflow" class="workflow-card">
+               <div class="workflow-header">
+                 <span class="workflow-title">
+                   <icon-robot style="margin-right:4px"/> 行程规划执行中
+                 </span>
+                 <span class="workflow-status" :class="msg.workflow.status">
+                    {{ msg.workflow.status === 'running' ? '执行中...' : '已完成' }}
+                 </span>
+               </div>
+               <div class="workflow-steps">
+                  <div v-for="(step, idx) in msg.workflow.steps" :key="step.key" class="step-item" :class="step.status">
+                     <div class="step-icon">
+                        <component :is="step.status === 'finish' ? 'icon-check-circle' : (step.status === 'process' ? 'icon-loading' : step.icon)" :spin="step.status === 'process'" />
+                     </div>
+                     <span class="step-label">{{ step.label }}</span>
+                     <div class="step-line" v-if="idx < msg.workflow.steps.length - 1"></div>
+                  </div>
+               </div>
+            </div>
+             <!-- 技能卡片 (用户侧展示) -->
+             <div v-if="msg.type === 'skill_card'" class="skill-request-card">
+                <div class="card-header">
+                   <icon-robot /> 旅行定制需求
+                </div>
+                <div class="card-body">
+                   <div class="info-row">
+                      <span class="label">目的地：</span>
+                      <span class="val">{{ msg.skillData.destination }}</span>
+                   </div>
+                   <div class="info-row">
+                      <span class="label">天数：</span>
+                      <span class="val">{{ msg.skillData.days }}天</span>
+                   </div>
+                   <div class="info-row">
+                      <span class="label">人员：</span>
+                      <span class="val">{{ msg.skillData.people }}</span>
+                   </div>
+                   <div class="info-tags" v-if="msg.skillData.preferences.length">
+                      <span v-for="tag in msg.skillData.preferences" :key="tag" class="tag">{{ tag }}</span>
+                   </div>
+                </div>
+             </div>
+
             <!-- AI 消息内容 -->
-            <div class="content markdown-body" v-if="msg.loading">
+            <div class="content markdown-body" v-if="msg.loading && !msg.workflow">
               <div class="typing-dots">
                 <span></span><span></span><span></span>
               </div>
             </div>
             <div 
               class="content markdown-body" 
-              v-else 
+              v-else-if="msg.type !== 'skill_card'" 
               v-html="renderMarkdown(msg.content)"
               :style="msg.role === 'user' ? { background: currentRole?.themeColor || 'var(--primary-6)' } : {}"
             ></div>
@@ -191,6 +337,53 @@
       </div>
     </div>
   </div>
+
+  <!-- 旅行规划状态浮层，不占用对话区 -->
+  <!-- 侧边工作流卡片，不占用聊天气泡 -->
+  <!-- 旅行规划悬浮球 + 折叠面板 -->
+  <transition name="fade">
+    <div v-if="travelPlanIndicator.visible" class="travel-floating">
+      <!-- 提示气泡 -->
+      <div v-if="travelPlanIndicator.hintVisible" class="travel-hint">{{ travelPlanIndicator.hintText }}</div>
+
+      <!-- 悬浮球 -->
+      <div class="travel-ball" :class="travelPlanIndicator.status" @click="travelPlanIndicator.expanded = !travelPlanIndicator.expanded">
+        <icon-loading v-if="travelPlanIndicator.status === 'running'" class="ball-icon" />
+        <icon-check-circle v-else-if="travelPlanIndicator.status === 'success'" class="ball-icon" />
+        <icon-close v-else class="ball-icon" />
+      </div>
+      <div class="travel-ball-caption">旅行计划师</div>
+
+      <!-- 折叠面板 -->
+      <div v-if="travelPlanIndicator.expanded" class="travel-panel">
+        <div class="panel-header">
+          <icon-robot /> 旅行计划师 · {{ travelPlanIndicator.status === 'running' ? '执行中' : (travelPlanIndicator.status === 'success' ? '已完成' : '异常') }}
+        </div>
+        <div class="panel-body">
+          <div v-for="(step, idx) in travelPlanIndicator.steps" :key="step.key" class="panel-step">
+            <div class="panel-step-icon" :class="step.status">
+              <icon-check-circle v-if="step.status === 'finish'" />
+              <icon-loading v-else-if="step.status === 'process'" />
+              <icon-dot v-else />
+            </div>
+            <div class="panel-step-content">
+              <div class="panel-step-title">{{ step.label }}</div>
+              <div class="panel-step-status" :class="step.status">
+                {{ step.status === 'finish' ? '完成' : (step.status === 'process' ? '进行中' : '待开始') }}
+              </div>
+            </div>
+            <div v-if="idx < travelPlanIndicator.steps.length - 1" class="panel-step-line"></div>
+          </div>
+        </div>
+        <div class="panel-footer" :class="travelPlanIndicator.status">
+          <icon-loading v-if="travelPlanIndicator.status === 'running'" />
+          <icon-check-circle v-else-if="travelPlanIndicator.status === 'success'" />
+          <icon-close v-else />
+          <span class="panel-footer-text">{{ travelPlanIndicator.text }}</span>
+        </div>
+      </div>
+    </div>
+  </transition>
 </template>
 
 <script setup>
@@ -199,8 +392,10 @@ import { useRoute } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { getRoleDetail } from '@/api/role'
 import { getChatHistory, resetChat } from '@/api/chat'
+import { fetchSkillHistory, downloadSkillMd } from '@/api/skill'
+import { runTravelPlanStream } from '@/api/travel'
 import { Message } from '@arco-design/web-vue'
-import { IconRefresh, IconImage, IconLeft, IconSend, IconUser, IconCaretRight, IconSound, IconMute } from '@arco-design/web-vue/es/icon'
+import { IconRefresh, IconImage, IconLeft, IconSend, IconUser, IconCaretRight, IconSound, IconMute, IconRobot, IconSearch, IconFilter, IconLocation, IconEdit, IconCheckCircle, IconLoading } from '@arco-design/web-vue/es/icon'
 import MarkdownIt from 'markdown-it'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { adaptRoleData } from '@/utils/roleAdapter'
@@ -216,6 +411,196 @@ const messages = ref([])
 const inputText = ref('')
 const sending = ref(false)
 const chatBodyRef = ref(null)
+// 工作流步骤（展示用）
+const workflowSteps = [
+  { key: 'search', label: '检索景点数据', status: 'pending', icon: 'icon-search' },
+  { key: 'filter', label: '筛选优质POI', status: 'pending', icon: 'icon-filter' },
+  { key: 'route', label: '规划最优路线', status: 'pending', icon: 'icon-location' },
+  { key: 'generate', label: '生成详细路书', status: 'pending', icon: 'icon-edit' }
+]
+const travelPlanning = ref(false)
+  const travelPlanIndicator = reactive({
+    visible: false,
+    status: 'idle', // running | success | error
+    text: '',
+    steps: JSON.parse(JSON.stringify(workflowSteps)),
+    expanded: false,
+    hintVisible: false,
+    hintText: ''
+  })
+
+// 技能面板相关
+const isSkillPanelOpen = ref(false)
+const activeTab = ref('plan') // plan | history
+const tripPlan = reactive({
+  destination: '',
+  days: 3,
+  people: '情侣',
+  budget: '适中',
+  preferences: []
+})
+const preferencesOptions = ['自然风光', '人文古迹', '美食探店', '休闲度假', '极限运动', '网红打卡']
+
+// 技能历史
+const historyLoading = ref(false)
+const historyList = ref([])
+
+const loadHistory = async () => {
+  historyLoading.value = true
+  try {
+    const data = await fetchSkillHistory(roleId.value)
+    historyList.value = data || []
+  } catch (e) {
+    // ignore
+  } finally {
+    historyLoading.value = false
+  }
+}
+
+const handleDownloadMd = async (item) => {
+  try {
+    const res = await downloadSkillMd(item.id) // 可能返回 Blob 或 { data: Blob }
+    const data = res instanceof Blob ? res : (res?.data instanceof Blob ? res.data : res)
+    const blob = data instanceof Blob ? data : new Blob([data], { type: 'text/markdown;charset=utf-8' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${item.destination || '旅行路书'}.md`
+    a.click()
+    window.URL.revokeObjectURL(url)
+  } catch (e) {
+    Message.error('下载失败，请稍后重试')
+  }
+}
+
+const handlePreviewMd = async (item) => {
+  try {
+    const url = item.mdUrl || item.mdPath
+    if (!url) {
+      Message.error('未获取到预览地址')
+      return
+    }
+    window.open(url, '_blank')
+  } catch (e) {
+    Message.error('预览失败，请稍后重试')
+  }
+}
+
+// 提交旅行规划
+const submitTripPlan = async () => {
+  if (travelPlanning.value) return
+  isSkillPanelOpen.value = false
+  travelPlanning.value = true
+  travelPlanIndicator.visible = true
+  travelPlanIndicator.status = 'running'
+  travelPlanIndicator.text = '行程规划生成中...'
+  travelPlanIndicator.steps = JSON.parse(JSON.stringify(workflowSteps))
+  // 初始将第一个节点设为进行中
+  if (travelPlanIndicator.steps.length > 0) {
+    travelPlanIndicator.steps[0].status = 'process'
+  }
+  ensureRunningStep()
+  travelPlanIndicator.expanded = false
+  showTravelHint('行程规划生成中...')
+
+  // 调用 SSE 版本的旅行规划
+  const payload = {
+    destination: tripPlan.destination,
+    days: tripPlan.days,
+    people: tripPlan.people,
+    budget: tripPlan.budget,
+    preferences: tripPlan.preferences,
+    rawRequirement: `Destination:${tripPlan.destination};Days:${tripPlan.days};People:${tripPlan.people};Budget:${tripPlan.budget};Tags:${tripPlan.preferences.join(',')}`
+  }
+
+  const controller = runTravelPlanStream(roleId.value, payload, {
+    onProgress: (data) => {
+      travelPlanIndicator.visible = true
+      travelPlanIndicator.status = 'running'
+      const steps = travelPlanIndicator.steps
+      if (data?.step) {
+        const idx = steps.findIndex(s => s.key === data.step)
+        if (idx >= 0) {
+          steps[idx].status = 'finish'
+          // 将下一个待开始的节点标记为进行中
+          const next = steps.find(s => s.status === 'pending')
+          if (next) next.status = 'process'
+        }
+      }
+      ensureRunningStep()
+      travelPlanIndicator.text = '行程规划执行中...'
+      showTravelHint(travelPlanIndicator.text)
+    },
+    onMessage: (data) => {
+      if (typeof data === 'string' && data) {
+        travelPlanIndicator.text = data
+        showTravelHint(data)
+      } else if (data?.message) {
+        travelPlanIndicator.text = data.message
+        showTravelHint(data.message)
+      }
+    },
+    onDone: (data) => {
+      travelPlanIndicator.status = 'success'
+      travelPlanIndicator.text = data?.message || '行程规划已生成，可在历史记录下载。'
+      travelPlanIndicator.steps.forEach(s => s.status = 'finish')
+      showTravelHint(travelPlanIndicator.text)
+      setTimeout(() => { travelPlanIndicator.visible = false }, 8000)
+      loadHistory()
+      travelPlanning.value = false
+    },
+    onError: () => {
+      travelPlanIndicator.status = 'error'
+      travelPlanIndicator.text = '规划生成失败，请稍后重试。'
+      travelPlanIndicator.steps.forEach((s, idx) => {
+        s.status = idx === 0 ? 'finish' : 'pending'
+      })
+      ensureRunningStep()
+      showTravelHint(travelPlanIndicator.text)
+      setTimeout(() => { travelPlanIndicator.visible = false }, 8000)
+      travelPlanning.value = false
+    }
+  })
+
+  // 兜底：20 分钟后主动中断
+  setTimeout(() => {
+    if (travelPlanning.value) {
+      controller.abort()
+      travelPlanIndicator.status = 'error'
+      travelPlanIndicator.text = '规划超时，请稍后重试。'
+      ensureRunningStep()
+      showTravelHint(travelPlanIndicator.text)
+      setTimeout(() => { travelPlanIndicator.visible = false }, 8000)
+      travelPlanning.value = false
+    }
+  }, 20 * 60 * 1000)
+}
+
+const showTravelHint = (text) => {
+  travelPlanIndicator.hintText = text
+  travelPlanIndicator.hintVisible = true
+  setTimeout(() => {
+    travelPlanIndicator.hintVisible = false
+  }, 3000)
+}
+
+// 保证始终有一个“进行中”节点（除非全部完成/错误）
+const ensureRunningStep = () => {
+  if (travelPlanIndicator.status !== 'running') return
+  const steps = travelPlanIndicator.steps
+  const hasProcess = steps.some(s => s.status === 'process')
+  if (!hasProcess) {
+    const next = steps.find(s => s.status === 'pending')
+    if (next) next.status = 'process'
+  }
+}
+
+// 辅助函数：更新步骤状态（预留未来细粒度进度需要）
+const updateWorkflowStep = (msg, key, status) => {
+  const step = msg.workflow?.steps?.find(s => s.key === key)
+  if (step) step.status = status
+}
+
 
 // 语音播报相关
 const isVoiceEnabled = ref(false)
@@ -314,6 +699,13 @@ const scrollToBottom = async () => {
   await nextTick()
   if (chatBodyRef.value) {
     chatBodyRef.value.scrollTop = chatBodyRef.value.scrollHeight
+  }
+}
+
+// 返回角色列表
+const backToRoles = () => {
+  if (route.name !== 'roles') {
+    router.push('/roles')
   }
 }
 
@@ -1057,4 +1449,388 @@ watch(() => route.params.roleId, (newId) => {
   font-size: 12px;
   color: #86909c;
 }
+
+/* 旅行规划浮层 */
+.travel-floating {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  z-index: 20;
+}
+.travel-chip {
+  display: none; /* placeholder old style removed */
+}
+.travel-floating {
+  position: fixed;
+  bottom: 88px;
+  right: 90px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+.travel-hint {
+  background: rgba(0,0,0,0.78);
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  max-width: 260px;
+}
+.travel-ball {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+  border: 1px solid #ebedf0;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+.travel-ball:hover {
+  transform: scale(1.04);
+}
+.travel-ball.running { color: #165dff; }
+.travel-ball.success { color: #00b42a; }
+.travel-ball.error { color: #f53f3f; }
+.ball-icon { font-size: 20px; }
+.travel-ball-caption {
+  font-size: 11px;
+  color: #666;
+  margin-top: -4px;
+}
+.travel-panel {
+  width: 260px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+  border: 1px solid #ebedf0;
+  overflow: hidden;
+}
+.panel-header {
+  padding: 10px 12px;
+  font-weight: 600;
+  font-size: 13px;
+  color: #1d2129;
+  border-bottom: 1px solid #f2f3f5;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.panel-body {
+  padding: 12px 12px 6px 12px;
+}
+.panel-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  position: relative;
+}
+.panel-step + .panel-step {
+  margin-top: 10px;
+}
+.panel-step-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f2f3f5;
+  color: #b4b8bf;
+  font-size: 14px;
+}
+.panel-step-icon.process {
+  background: #e8f3ff;
+  color: #165dff;
+}
+.panel-step-icon.finish {
+  background: #e8ffea;
+  color: #00b42a;
+}
+.panel-step-content {
+  flex: 1;
+}
+.panel-step-title {
+  font-size: 13px;
+  color: #1d2129;
+}
+.panel-step-status {
+  font-size: 11px;
+  color: #86909c;
+}
+.panel-step-status.process {
+  color: #165dff;
+}
+.panel-step-status.finish {
+  color: #00b42a;
+}
+.panel-step-line {
+  position: absolute;
+  left: 12px;
+  top: 24px;
+  width: 1px;
+  height: calc(100% - 24px);
+  background: #f2f3f5;
+}
+.panel-footer {
+  padding: 10px 12px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  border-top: 1px solid #f2f3f5;
+}
+.panel-footer.running { color: #165dff; }
+.panel-footer.success { color: #00b42a; }
+.panel-footer.error { color: #f53f3f; }
+.fade-enter-active, .fade-leave-active {
+  transition: opacity 0.2s;
+}
+.fade-enter-from, .fade-leave-to {
+  opacity: 0;
+}
+
+/* 技能抽屉样式 */
+.drawer-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #1d2129;
+}
+
+.drawer-icon {
+  color: var(--primary-6);
+  font-size: 20px;
+}
+
+.skill-form {
+  padding: 8px 4px;
+}
+
+.drawer-actions {
+  margin-top: 32px;
+}
+
+.history-panel {
+  padding: 8px 4px;
+}
+
+.history-empty {
+  color: #86909c;
+  font-size: 13px;
+  padding: 12px;
+  text-align: center;
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.history-item {
+  border: 1px solid #f2f3f5;
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #fff;
+}
+
+.history-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1d2129;
+}
+
+.history-meta {
+  font-size: 12px;
+  color: #86909c;
+}
+
+.history-tags {
+  margin-top: 6px;
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.history-tags .tag {
+  background: #f2f3f5;
+  color: #4e5969;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.history-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* 技能请求卡片 (用户侧) */
+.skill-request-card {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.05);
+  overflow: hidden;
+  width: 240px;
+  border: 1px solid #f2f3f5;
+}
+
+.skill-request-card .card-header {
+  background: var(--primary-1);
+  color: var(--primary-6);
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.skill-request-card .card-body {
+  padding: 12px;
+  font-size: 13px;
+  color: #4e5969;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.info-row .label {
+  color: #86909c;
+}
+
+.info-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.info-tags .tag {
+  background: #f2f3f5;
+  color: #4e5969;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+/* 工作流状态卡片 (AI侧) */
+.workflow-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 8px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+  width: 100%;
+  border: 1px solid #e5e6eb;
+}
+
+.workflow-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1d2129;
+}
+
+.workflow-status {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #e8ffea;
+  color: #00b42a;
+}
+.workflow-status.running {
+  background: #e8f3ff;
+  color: #165dff;
+}
+.workflow-status.error {
+  background: #ffece8;
+  color: #f53f3f;
+}
+
+.workflow-steps {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  position: relative;
+}
+
+.step-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  position: relative;
+  z-index: 1;
+}
+
+.step-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #f2f3f5;
+  color: #86909c;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  transition: all 0.3s;
+}
+
+.step-item.process .step-icon {
+  background: #e8f3ff;
+  color: #165dff;
+  box-shadow: 0 0 0 4px rgba(22,93,255,0.1);
+}
+
+.step-item.finish .step-icon {
+  background: #e8ffea;
+  color: #00b42a;
+}
+
+.step-label {
+  font-size: 11px;
+  color: #86909c;
+  transform: scale(0.9);
+  white-space: nowrap;
+}
+
+.step-item.process .step-label {
+  color: #165dff;
+  font-weight: 600;
+}
+
+.step-line {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  width: 100%;
+  height: 2px;
+  background: #f2f3f5;
+  z-index: -1;
+}
+
+.step-item.finish .step-line {
+  background: #e8ffea; 
+}
+/* 修正线段颜色逻辑：只有当当前节点和下一个节点都完成时，线段才变绿。这里简化处理，不做太复杂 */
 </style>

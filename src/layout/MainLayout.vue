@@ -91,6 +91,7 @@ const onCollapse = (val) => {
 }
 
 const handleMenuClick = (key) => {
+  if (route.name === key) return
   router.push({ name: key })
 }
 
@@ -98,7 +99,9 @@ const handleCommand = async (value) => {
   if (value === 'logout') {
     await userStore.logout()
     Message.success('已退出登录')
-    router.push('/login')
+    if (route.name !== 'login') {
+      router.push('/login')
+    }
   }
 }
 </script>
