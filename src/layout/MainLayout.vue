@@ -100,7 +100,7 @@ const handleCommand = async (value) => {
     await userStore.logout()
     Message.success('已退出登录')
     if (route.name !== 'login') {
-      router.push('/login')
+    router.push('/login')
     }
   }
 }

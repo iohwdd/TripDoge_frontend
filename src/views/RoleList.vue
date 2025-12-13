@@ -107,6 +107,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { getRoleList } from '@/api/role'
+import { getIntimacy } from '@/api/intimacy'
 import { IconHeartFill, IconMessage } from '@arco-design/web-vue/es/icon'
 import { adaptRoleData } from '@/utils/roleAdapter'
 
@@ -129,8 +130,22 @@ const fetchRoles = async () => {
   try {
     const res = await getRoleList()
     // 使用适配器处理数据
-    roles.value = res.map(adaptRoleData)
-    
+    const mapped = res.map(adaptRoleData)
+    // 补充亲密度
+    const withIntimacy = await Promise.all(
+      mapped.map(async (role) => {
+        try {
+          const data = await getIntimacy(role.id)
+          if (data && typeof data.intimacy === 'number') {
+            role.intimacy = data.intimacy
+          }
+        } catch (e) {
+          // ignore intimacy fetch errors
+        }
+        return role
+      })
+    )
+    roles.value = withIntimacy
     if (roles.value.length > 0) {
       currentRole.value = roles.value[0]
     }

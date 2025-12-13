@@ -33,36 +33,36 @@
         
         <div class="actions">
           <a-tooltip content="语音播报配置" position="bottom">
-            <a-popover trigger="click" position="bottom" content-class="voice-popover">
-              <a-button type="text" class="action-btn" shape="circle">
-                <icon-sound v-if="isVoiceEnabled" />
-                <icon-mute v-else />
-              </a-button>
-              <template #content>
-                <div class="voice-config-panel">
-                  <div class="panel-row">
-                    <span class="panel-label">语音播报</span>
-                    <a-switch v-model="isVoiceEnabled" size="small" />
-                  </div>
-                  <div v-if="isVoiceEnabled" class="voice-selector">
-                    <div class="panel-divider"></div>
-                    <div class="option-title">音色选择</div>
-                    <a-radio-group v-model="selectedVoice" direction="vertical" class="voice-radio-group">
-                      <a-radio v-for="opt in voiceOptions" :key="opt.value" :value="opt.value">
-                        <span class="voice-name">{{ opt.label }}</span>
-                        <span class="voice-desc">{{ opt.desc }}</span>
-                      </a-radio>
-                    </a-radio-group>
-                  </div>
+          <a-popover trigger="click" position="bottom" content-class="voice-popover">
+            <a-button type="text" class="action-btn" shape="circle">
+              <icon-sound v-if="isVoiceEnabled" />
+              <icon-mute v-else />
+            </a-button>
+            <template #content>
+              <div class="voice-config-panel">
+                <div class="panel-row">
+                  <span class="panel-label">语音播报</span>
+                  <a-switch v-model="isVoiceEnabled" size="small" />
                 </div>
-              </template>
-            </a-popover>
+                <div v-if="isVoiceEnabled" class="voice-selector">
+                  <div class="panel-divider"></div>
+                  <div class="option-title">音色选择</div>
+                  <a-radio-group v-model="selectedVoice" direction="vertical" class="voice-radio-group">
+                    <a-radio v-for="opt in voiceOptions" :key="opt.value" :value="opt.value">
+                      <span class="voice-name">{{ opt.label }}</span>
+                      <span class="voice-desc">{{ opt.desc }}</span>
+                    </a-radio>
+                  </a-radio-group>
+                </div>
+              </div>
+            </template>
+          </a-popover>
           </a-tooltip>
 
           <a-tooltip content="旅行计划师" position="bottom">
-            <a-button type="text" class="action-btn" shape="circle" @click="isSkillPanelOpen = true">
-              <icon-robot />
-            </a-button>
+          <a-button type="text" class="action-btn" shape="circle" @click="isSkillPanelOpen = true">
+            <icon-robot />
+          </a-button>
           </a-tooltip>
 
           <a-tooltip content="重置记忆">
@@ -388,7 +388,7 @@
 
 <script setup>
 import { ref, onMounted, nextTick, computed, watch, reactive } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { getRoleDetail } from '@/api/role'
 import { getChatHistory, resetChat } from '@/api/chat'
@@ -401,6 +401,7 @@ import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { adaptRoleData } from '@/utils/roleAdapter'
 
 const route = useRoute()
+const router = useRouter()
 const userStore = useUserStore()
 const userInfo = computed(() => userStore.userInfo)
 const md = new MarkdownIt()
@@ -530,7 +531,7 @@ const submitTripPlan = async () => {
       ensureRunningStep()
       travelPlanIndicator.text = '行程规划执行中...'
       showTravelHint(travelPlanIndicator.text)
-    },
+      },
     onMessage: (data) => {
       if (typeof data === 'string' && data) {
         travelPlanIndicator.text = data
@@ -572,7 +573,7 @@ const submitTripPlan = async () => {
       showTravelHint(travelPlanIndicator.text)
       setTimeout(() => { travelPlanIndicator.visible = false }, 8000)
       travelPlanning.value = false
-    }
+  }
   }, 20 * 60 * 1000)
 }
 
@@ -877,6 +878,26 @@ const sendMessage = async () => {
              } catch(e) { /* ignore */ }
            }
            return
+        }
+
+        // 亲密度提示事件：不进入聊天气泡，触发 UI 提示
+        if (msg.event === 'intimacy') {
+          try {
+            const dataObj = JSON.parse(msg.data)
+            if (dataObj && typeof dataObj === 'object') {
+              const delta = dataObj.delta ?? 0
+              const intimacy = dataObj.intimacy
+              // 更新当前角色的亲密度展示（若有）
+              if (typeof intimacy === 'number' && currentRole.value && currentRole.value.id === Number(roleId.value)) {
+                currentRole.value.intimacy = intimacy
+              }
+              // 触发头像气泡提示（假设前端有全局事件或本地状态，这里用简单消息提示代替）
+              Message.success(`亲密度 +${delta}`)
+            }
+          } catch (e) {
+            // ignore parsing errors
+          }
+          return
         }
 
         if (msg.data === '[DONE]') {
