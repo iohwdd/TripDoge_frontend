@@ -607,6 +607,7 @@ const updateWorkflowStep = (msg, key, status) => {
 const isVoiceEnabled = ref(false)
 const audioContext = ref(null)
 const nextAudioTime = ref(0)
+const audioSources = ref([])
 // 采样率，根据后端 QwenRealtimeTtsService 默认值设定，通常为 24000 或 16000
 const AUDIO_SAMPLE_RATE = 24000 
 
@@ -634,6 +635,15 @@ const initAudioContext = () => {
 }
 
 // 播放 PCM 音频分片
+const resetAudioPlayback = () => {
+  // 停止现有的源，重置播放指针
+  audioSources.value.forEach(src => {
+    try { src.stop() } catch (e) { /* ignore */ }
+  })
+  audioSources.value = []
+  nextAudioTime.value = 0
+}
+
 const playPcmChunk = (base64Data) => {
   if (!audioContext.value) return
 
@@ -659,6 +669,7 @@ const playPcmChunk = (base64Data) => {
     const source = audioContext.value.createBufferSource()
     source.buffer = buffer
     source.connect(audioContext.value.destination)
+    audioSources.value.push(source)
 
     const currentTime = audioContext.value.currentTime
     // 如果下一次播放时间小于当前时间，说明发生了延迟或刚开始，立即播放
@@ -812,6 +823,9 @@ const fetchHistory = async () => {
 const sendMessage = async () => {
   const text = inputText.value.trim()
   if (!text && !sending.value) return
+  if (isVoiceEnabled.value) {
+    resetAudioPlayback()
+  }
 
   // 初始化音频环境
   if (isVoiceEnabled.value) {
