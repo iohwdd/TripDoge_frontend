@@ -16,6 +16,8 @@ export default defineConfig({
   },
   server: {
     proxy: {
+      host: '0.0.0.0',            
+      allowedHosts: ['kson.site'],
       '/api': {
         target: 'http://localhost:7979', //110.40.207.231
         changeOrigin: true,

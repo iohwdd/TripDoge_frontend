@@ -174,19 +174,23 @@
     <!-- 消息列表 (滚动区域) -->
     <div class="chat-body" ref="chatBodyRef">
       <div class="message-list">
-        <!-- 日期分割线 -->
-        <div class="date-divider" v-if="messages.length > 0">今天</div>
+        <!-- 移除原来写死的今天分割线 -->
+        <!-- <div class="date-divider" v-if="messages.length > 0">今天</div> -->
         
         <!-- 空状态提示 -->
         <div v-if="messages.length === 0" class="empty-chat-tip">
            <span class="tip-pill">开始与 {{ currentRole?.name || 'TA' }} 的新对话吧~</span>
         </div>
         
-        <div 
-          v-for="msg in messages" 
-          :key="msg.id" 
-          :class="['message-item', msg.role === 'user' ? 'user' : 'assistant']"
-        >
+        <template v-for="(msg, index) in messages" :key="msg.id">
+          <!-- 时间分割线 -->
+          <div v-if="shouldShowTimeDivider(msg, index)" class="date-divider">
+            {{ formatMessageTime(msg.id) }}
+          </div>
+
+          <div 
+            :class="['message-item', msg.role === 'user' ? 'user' : 'assistant']"
+          >
           <div class="avatar">
             <a-avatar v-if="msg.role === 'user'" :size="40">
                 <img 
@@ -272,6 +276,28 @@
               :style="msg.role === 'user' ? { background: currentRole?.themeColor || 'var(--primary-6)' } : {}"
             ></div>
 
+            <!-- 附件展示区 (附属标签) -->
+            <div v-if="msg.attachmentName && msg.attachmentPath" class="attachment-container">
+              <div class="attachment-card">
+                 <div class="file-icon">
+                    <icon-file-image v-if="isImageFile(msg.attachmentName)" />
+                    <icon-file-pdf v-else-if="isPdfFile(msg.attachmentName)" />
+                    <icon-file v-else />
+                 </div>
+                 <div class="file-info">
+                    <div class="file-name" :title="msg.attachmentName">{{ msg.attachmentName }}</div>
+                 </div>
+                 <div class="file-actions">
+                    <a-button v-if="isImageFile(msg.attachmentName)" type="text" size="mini" @click="previewAttachment(msg)">
+                      <icon-eye />
+                    </a-button>
+                    <a-button type="text" size="mini" @click="downloadAttachment(msg)">
+                      <icon-download />
+                    </a-button>
+                 </div>
+              </div>
+            </div>
+
             <!-- 工具调用展示区 (附属标签) -->
             <div v-if="msg.toolCalls && msg.toolCalls.length > 0" class="tool-calls-container">
               <a-collapse :bordered="false" expand-icon-position="right" class="minimal-collapse">
@@ -298,21 +324,36 @@
             </div>
           </div>
         </div>
+        </template>
       </div>
     </div>
 
     <!-- 底部输入 (悬浮设计) -->
     <div class="chat-footer">
       <div class="input-bar">
-        <a-upload action="/" :auto-upload="false" :show-file-list="false" @change="handleFileSelect">
+        <a-upload 
+          action="/" 
+          :auto-upload="false" 
+          :show-file-list="false" 
+          @change="handleFileSelect"
+          accept=".txt,.doc,.docx,.md,.pdf,.jpg,.jpeg,.png"
+        >
            <template #upload-button>
               <a-button type="text" shape="circle" class="tool-btn">
-                <icon-image />
+                <icon-attachment />
               </a-button>
            </template>
         </a-upload>
 
         <div class="input-wrapper">
+          <div v-if="selectedFile" class="file-preview-chip">
+             <div class="chip-content">
+               <icon-attachment />
+               <span class="file-name">{{ selectedFile.name }}</span>
+             </div>
+             <icon-close class="close-btn" @click.stop="clearSelectedFile" />
+          </div>
+
           <a-textarea
             v-model="inputText"
             placeholder="和它说点什么..."
@@ -329,7 +370,7 @@
           :loading="sending" 
           @click="sendMessage"
           class="send-btn"
-          :disabled="!inputText.trim()"
+          :disabled="!inputText.trim() && !selectedFile"
           :style="{ backgroundColor: currentRole?.themeColor || 'var(--primary-6)', borderColor: currentRole?.themeColor || 'var(--primary-6)' }"
         >
           <icon-send />
@@ -364,7 +405,7 @@
             <div class="panel-step-icon" :class="step.status">
               <icon-check-circle v-if="step.status === 'finish'" />
               <icon-loading v-else-if="step.status === 'process'" />
-              <icon-dot v-else />
+              <icon-record v-else />
             </div>
             <div class="panel-step-content">
               <div class="panel-step-title">{{ step.label }}</div>
@@ -387,18 +428,20 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick, computed, watch, reactive } from 'vue'
+import { ref, onMounted, nextTick, computed, watch, reactive, h } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { getRoleDetail } from '@/api/role'
 import { getChatHistory, resetChat } from '@/api/chat'
 import { fetchSkillHistory, downloadSkillMd } from '@/api/skill'
 import { runTravelPlanStream } from '@/api/travel'
-import { Message } from '@arco-design/web-vue'
-import { IconRefresh, IconImage, IconLeft, IconSend, IconUser, IconCaretRight, IconSound, IconMute, IconRobot, IconSearch, IconFilter, IconLocation, IconEdit, IconCheckCircle, IconLoading } from '@arco-design/web-vue/es/icon'
+import { Message, Modal } from '@arco-design/web-vue'
+import { IconRefresh, IconAttachment, IconClose, IconLeft, IconSend, IconUser, IconCaretRight, IconSound, IconMute, IconRobot, IconSearch, IconFilter, IconLocation, IconEdit, IconCheckCircle, IconLoading, IconRecord, IconFile, IconFilePdf, IconFileImage, IconDownload, IconEye } from '@arco-design/web-vue/es/icon'
 import MarkdownIt from 'markdown-it'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { adaptRoleData } from '@/utils/roleAdapter'
+
+import dayjs from 'dayjs'
 
 const route = useRoute()
 const router = useRouter()
@@ -406,10 +449,125 @@ const userStore = useUserStore()
 const userInfo = computed(() => userStore.userInfo)
 const md = new MarkdownIt()
 
+// 时间格式化逻辑
+const shouldShowTimeDivider = (currentMsg, index) => {
+  // 第一条消息总是显示时间
+  if (index === 0) return true
+  
+  const prevMsg = messages.value[index - 1]
+  const currentTime = currentMsg.id // 假设 id 是时间戳，或者取 currentMsg.createdAt
+  const prevTime = prevMsg.id
+  
+  // 如果间隔超过 10 分钟 (10 * 60 * 1000 ms)
+  return (currentTime - prevTime) > 10 * 60 * 1000
+}
+
+const formatMessageTime = (timestamp) => {
+  if (!timestamp) return ''
+  const date = dayjs(timestamp)
+  const now = dayjs()
+  
+  // 今天：显示 "今天 HH:mm"
+  if (date.isSame(now, 'day')) {
+    return `今天 ${date.format('HH:mm')}`
+  }
+  
+  // 昨天：显示 "昨天 HH:mm"
+  if (date.isSame(now.subtract(1, 'day'), 'day')) {
+    return `昨天 ${date.format('HH:mm')}`
+  }
+  
+  // 其他：显示 "M月D日 HH:mm" 或 "YYYY年M月D日 HH:mm"
+  if (date.isSame(now, 'year')) {
+    return date.format('M月D日 HH:mm')
+  } else {
+    return date.format('YYYY年M月D日 HH:mm')
+  }
+}
+
+// 附件处理相关
+const isImageFile = (filename) => /\.(jpg|jpeg|png|gif|webp)$/i.test(filename)
+const isPdfFile = (filename) => /\.pdf$/i.test(filename)
+
+const downloadAttachment = async (msg) => {
+    if (!msg.attachmentPath) return
+    try {
+        const token = localStorage.getItem('token')
+        const response = await fetch(`/api/file/get`, {
+            method: 'POST',
+            headers: { 
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json' 
+            },
+            body: JSON.stringify({ 
+                objectKey: msg.attachmentPath,
+                fileName: msg.attachmentName 
+            })
+        })
+        const resData = await response.json()
+        if (resData.code !== 200 || !resData.data?.url) {
+            throw new Error(resData.message || '获取下载地址失败')
+        }
+        
+        // 使用后端返回的签名 URL 进行下载
+        const downloadUrl = resData.data.url
+        const a = document.createElement('a')
+        a.href = downloadUrl
+        a.download = msg.attachmentName || 'attachment'
+        a.target = '_blank' // 防止在当前页跳转
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+    } catch (e) {
+        Message.error(e.message || '下载失败')
+    }
+}
+
+const previewAttachment = async (msg) => {
+    if (!msg.attachmentPath) return
+    try {
+        const token = localStorage.getItem('token')
+        const response = await fetch(`/api/file/get`, {
+            method: 'POST',
+            headers: { 
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json' 
+            },
+            body: JSON.stringify({ 
+                objectKey: msg.attachmentPath,
+                fileName: msg.attachmentName
+            })
+        })
+        const resData = await response.json()
+
+        if (resData.code !== 200 || !resData.data?.url) {
+            throw new Error(resData.message || '获取预览地址失败')
+        }
+        
+        const previewUrl = resData.data.url
+        
+        Modal.info({
+            title: msg.attachmentName,
+            content: () => h('img', { 
+                src: previewUrl, 
+                style: { maxWidth: '100%', maxHeight: '70vh', display: 'block', margin: '0 auto' } 
+            }),
+            width: 'auto',
+            footer: false,
+            closable: true,
+            simple: false, 
+            onBeforeClose: () => {}
+        })
+    } catch (e) {
+        Message.error(e.message || '预览失败')
+    }
+}
+
 const roleId = computed(() => route.params.roleId)
 const currentRole = ref(null)
 const messages = ref([])
 const inputText = ref('')
+const selectedFile = ref(null)
 const sending = ref(false)
 const chatBodyRef = ref(null)
 // 工作流步骤（展示用）
@@ -807,6 +965,8 @@ const fetchHistory = async () => {
           id: item.id,
           role: item.role,
           content: item.content,
+          attachmentPath: item.attachmentPath,
+          attachmentName: item.attachmentName,
           loading: false
         })
       }
@@ -822,7 +982,10 @@ const fetchHistory = async () => {
 // 发送消息
 const sendMessage = async () => {
   const text = inputText.value.trim()
-  if (!text && !sending.value) return
+  const hasFile = !!selectedFile.value
+  
+  if (!text && !hasFile && !sending.value) return
+  
   if (isVoiceEnabled.value) {
     resetAudioPlayback()
   }
@@ -833,14 +996,23 @@ const sendMessage = async () => {
     nextAudioTime.value = 0 // 重置播放时间戳
   }
   
+  let userContent = text
+  if (hasFile) {
+     userContent = text ? `${text} (已附带文件: ${selectedFile.value.name})` : `(已发送文件: ${selectedFile.value.name})`
+  }
+
   messages.value.push({
     id: Date.now(),
     role: 'user',
-    content: text,
+    content: userContent,
+    attachmentPath: null, // 本地发送暂无回显path，或可存 blobUrl
+    attachmentName: hasFile ? selectedFile.value.name : null,
     loading: false
   })
   
   inputText.value = ''
+  const fileToSend = selectedFile.value
+  selectedFile.value = null // 发送后立即清空文件选择
   scrollToBottom()
   
   sending.value = true
@@ -859,7 +1031,10 @@ const sendMessage = async () => {
 
   const token = localStorage.getItem('token')
   const formData = new FormData()
-  formData.append('message', text)
+  formData.append('message', text) // 依然传原始文本，文件单独传
+  if (fileToSend) {
+    formData.append('file', fileToSend)
+  }
   if (isVoiceEnabled.value) {
     formData.append('streamAudio', true)
     formData.append('voice', selectedVoice.value)
@@ -1025,8 +1200,14 @@ const handleReset = async () => {
   }
 }
 
-const handleFileSelect = () => {
-    Message.info('图片上传功能暂未实现')
+const handleFileSelect = (_, currentFile) => {
+    if (currentFile && currentFile.file) {
+        selectedFile.value = currentFile.file
+    }
+}
+
+const clearSelectedFile = () => {
+    selectedFile.value = null
 }
 
 onMounted(() => {
@@ -1343,6 +1524,48 @@ watch(() => route.params.roleId, (newId) => {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
+/* 附件样式 */
+.attachment-container {
+  margin-top: 8px;
+  max-width: 260px;
+}
+
+.attachment-card {
+  background: #fff;
+  border: 1px solid #e5e6eb;
+  border-radius: 8px;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+}
+
+.file-icon {
+  font-size: 24px;
+  color: #165dff;
+  display: flex;
+  align-items: center;
+}
+
+.file-info {
+  flex: 1;
+  overflow: hidden;
+}
+
+.file-name {
+  font-size: 13px;
+  color: #1d2129;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-actions {
+  display: flex;
+  gap: 4px;
+}
+
 /* 底部输入悬浮 */
 .chat-footer {
   position: absolute;
@@ -1375,6 +1598,42 @@ watch(() => route.params.roleId, (newId) => {
 .input-wrapper {
   flex: 1;
   display: flex;
+  flex-direction: column; /* 改为列布局以容纳文件预览 */
+}
+
+.file-preview-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(0, 0, 0, 0.05);
+  padding: 4px 8px;
+  border-radius: 6px;
+  margin: 4px 8px 0 8px; /* 调整间距 */
+  font-size: 12px;
+  color: #4E342E;
+}
+
+.chip-content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.file-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.close-btn {
+  cursor: pointer;
+  color: #999;
+  padding: 2px;
+}
+.close-btn:hover {
+  color: #666;
 }
 
 .input-wrapper :deep(.arco-textarea-wrapper) {
