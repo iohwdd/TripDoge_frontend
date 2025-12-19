@@ -19,7 +19,7 @@ export default defineConfig({
       host: '0.0.0.0',            
       allowedHosts: ['kson.site'],
       '/api': {
-        target: 'http://localhost:7979', //110.40.207.231
+        target: 'http://localhost:7979',
         changeOrigin: true,
       }
     }
