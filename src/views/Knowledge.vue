@@ -54,13 +54,11 @@
         <div class="table-wrapper">
           <div class="toolbar">
             <div class="left-tools">
-               <a-upload
-                action="/api/doc/parse"
-                :headers="uploadHeaders"
-                :data="{ roleId: currentRoleId }" 
+<a-upload
                 :show-file-list="false"
-                @success="handleUploadSuccess"
-                @error="handleUploadError"
+                accept=".txt,.pdf,.md,.doc,.docx"
+                :auto-upload="false"
+                @change="handleFileSelect"
               >
                 <template #upload-button>
                   <a-button type="primary" size="large" class="upload-btn" :style="{ backgroundColor: currentRole.themeColor, borderColor: currentRole.themeColor }">
@@ -69,6 +67,7 @@
                   </a-button>
                 </template>
               </a-upload>
+              <input ref="retryInputRef" type="file" accept=".txt,.pdf,.md,.doc,.docx" style="display:none" @change="handleRetryUpload" />
               <span class="tip-text">支持 PDF, Word, TXT (Max 10MB)</span>
             </div>
             
@@ -97,19 +96,49 @@
                   </div>
                 </template>
               </a-table-column>
-              <a-table-column title="大小" data-index="fileSize" width="120">
+              <a-table-column title="解析进度" width="120">
                 <template #cell="{ record }">
-                  {{ (record.fileSize / 1024 / 1024).toFixed(2) }} MB
+                  <div class="status-cell">
+                    <a-tag v-if="getStatus(record) === 0" color="blue">解析中</a-tag>
+                    <a-tag v-else-if="getStatus(record) === 1" color="green">解析完成</a-tag>
+                    <a-tag v-else-if="getStatus(record) === 2" color="red">解析失败</a-tag>
+                    <span v-else>--</span>
+                  </div>
                 </template>
               </a-table-column>
-              <a-table-column title="上传时间" data-index="createTime" width="180" />
-              <a-table-column title="操作" width="100">
+              <a-table-column title="大小" width="120">
                 <template #cell="{ record }">
-                  <a-popconfirm content="确定要删除这段记忆吗？" type="warning" @ok="handleDelete(record)">
-                    <a-button type="text" size="small" status="danger" shape="circle">
-                      <icon-delete />
-                    </a-button>
-                  </a-popconfirm>
+                  {{ record.fileSizeFormatted || (record.fileSize ? (record.fileSize / 1024 / 1024).toFixed(2) + ' MB' : '--') }}
+                </template>
+              </a-table-column>
+              <a-table-column title="上传时间" width="180">
+                <template #cell="{ record }">
+                  {{ record.createTime ? dayjs(record.createTime).format('YYYY-MM-DD HH:mm') : '--' }}
+                </template>
+              </a-table-column>
+              <a-table-column title="操作" width="200">
+                <template #cell="{ record }">
+                  <a-space>
+                    <template v-if="getStatus(record) === 1">
+                      <a-button type="text" size="small" shape="circle" @click="handlePreview(record)">
+                        <icon-eye v-if="isImageFile(record.fileName) || isPdfFile(record.fileName)" />
+                        <icon-download v-else />
+                      </a-button>
+                    </template>
+                    <template v-else-if="getStatus(record) === 2">
+                      <a-button type="text" size="small" shape="round" @click="handleRetry">
+                        重新上传
+                      </a-button>
+                    </template>
+                    <template v-else>
+                      <a-tag color="blue">解析中</a-tag>
+                    </template>
+                    <a-popconfirm content="确定要删除这段记忆吗？" type="warning" @ok="handleDelete(record)">
+                      <a-button type="text" size="small" status="danger" shape="circle">
+                        <icon-delete />
+                      </a-button>
+                    </a-popconfirm>
+                  </a-space>
                 </template>
               </a-table-column>
             </template>
@@ -135,12 +164,15 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+// 引入 vue h 函数用于 Modal
+import { ref, onMounted, computed, h } from 'vue'
+import dayjs from 'dayjs'
 import { getDocList, deleteDoc } from '@/api/doc'
 import { getRoleList } from '@/api/role'
-import { Message } from '@arco-design/web-vue'
-import { IconUpload, IconFile, IconFilePdf, IconDelete, IconFolder, IconUserGroup } from '@arco-design/web-vue/es/icon'
+import { Message, Modal } from '@arco-design/web-vue'
+import { IconUpload, IconFile, IconFilePdf, IconDelete, IconFolder, IconUserGroup, IconEye, IconDownload } from '@arco-design/web-vue/es/icon'
 import { adaptRoleData } from '@/utils/roleAdapter' // 引入适配器
+import { fetchEventSource } from '@microsoft/fetch-event-source'
 
 const loading = ref(false)
 const data = ref([])
@@ -148,6 +180,17 @@ const roles = ref([])
 const currentRoleId = ref(null)
 const roleSearchKeyword = ref('')
 const pagination = { pageSize: 8 }
+const uploadingDocId = ref(null)
+const retryInputRef = ref(null)
+const getStatus = (record) => {
+  if (record.status === 0 || record.status === 1 || record.status === 2) return record.status
+  if (record.parseStatus === 'parsing') return 0
+  if (record.parseStatus === 'success') return 1
+  if (record.parseStatus === 'fail') return 2
+  return undefined
+}
+const reuploadTargetId = ref(null)
+const hiddenFileInput = ref(null)
 
 const uploadHeaders = computed(() => ({
   Authorization: `Bearer ${localStorage.getItem('token')}`
@@ -166,6 +209,13 @@ const filteredRoles = computed(() => {
     // 移除对 roleSetting 的搜索匹配，或者保留搜索但不展示
   )
 })
+
+const mapStatus = (status) => {
+  if (status === 0) return 'parsing'
+  if (status === 1) return 'success'
+  if (status === 2) return 'fail'
+  return ''
+}
 
 // 初始化
 const init = async () => {
@@ -189,7 +239,10 @@ const fetchDocs = async () => {
   loading.value = true
   try {
     const res = await getDocList({ roleId: currentRoleId.value })
-    data.value = res
+    data.value = (res || []).map(item => ({
+      ...item,
+      parseStatus: mapStatus(item.status)
+    }))
   } catch (error) {
     // error
   } finally {
@@ -197,23 +250,158 @@ const fetchDocs = async () => {
   }
 }
 
+// 辅助函数：判断文件类型
+const isImageFile = (filename) => /\.(jpg|jpeg|png|gif|webp)$/i.test(filename)
+const isPdfFile = (filename) => /\.pdf$/i.test(filename)
+
+const handlePreview = async (record) => {
+  if (!record.fileUrl) return
+  
+  try {
+    const token = localStorage.getItem('token')
+    const response = await fetch(`/api/file/get`, {
+        method: 'POST',
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json' 
+        },
+        body: JSON.stringify({ 
+            objectKey: record.fileUrl, // 使用 fileUrl 作为 objectKey
+            fileName: record.fileName
+        })
+    })
+    
+    const resData = await response.json()
+    if (resData.code !== 200 || !resData.data?.url) {
+        throw new Error(resData.message || '获取文件地址失败')
+    }
+    
+    const fileUrl = resData.data.url
+
+    // 图片预览
+    if (isImageFile(record.fileName)) {
+      Modal.info({
+        title: record.fileName,
+        content: () => h('img', { 
+            src: fileUrl, 
+            style: { maxWidth: '100%', maxHeight: '70vh', display: 'block', margin: '0 auto' } 
+        }),
+        width: 'auto',
+        footer: false,
+        closable: true,
+        simple: false
+      })
+    } 
+    // PDF 预览 (新窗口打开)
+    else if (isPdfFile(record.fileName)) {
+      window.open(fileUrl, '_blank')
+    }
+    // 其他文件直接下载
+    else {
+      handleDownload(record, fileUrl)
+    }
+  } catch (e) {
+    Message.error(e.message || '操作失败')
+  }
+}
+
+const handleDownload = (record, url) => {
+    const a = document.createElement('a')
+    a.href = url
+    a.download = record.fileName || 'file'
+    a.target = '_blank'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+}
+
 const handleRoleChange = (id) => {
   currentRoleId.value = id
   fetchDocs()
 }
 
-const handleUploadSuccess = (fileItem) => {
-  const res = fileItem.response
-  if (res && res.code === 200) {
-    Message.success('记忆植入成功！')
-    fetchDocs()
-  } else {
-    Message.error(res?.message || '上传失败')
+const updateDocStatus = (fileId, status) => {
+  const idx = data.value.findIndex(d => d.fileId === fileId)
+  if (idx >= 0) {
+    data.value[idx].status = status
   }
 }
 
-const handleUploadError = () => {
-  Message.error('上传失败')
+const uploadFile = async (file) => {
+  if (!file || !currentRoleId.value) return
+
+  const tempId = `temp_${Date.now()}`
+  uploadingDocId.value = tempId
+  data.value.unshift({
+    fileId: tempId,
+    fileName: file.name,
+    fileSize: file.size,
+    createTime: dayjs().format('YYYY-MM-DD HH:mm'),
+    status: 0
+  })
+
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('roleId', currentRoleId.value)
+
+  try {
+    await fetchEventSource('/api/doc/parse', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem('token') || ''}`
+      },
+      body: formData,
+      onmessage(ev) {
+        if (ev.event === 'progress') {
+          if (ev.data === 'parsing') {
+            updateDocStatus(uploadingDocId.value, 0)
+          } else if (ev.data === 'success') {
+            updateDocStatus(uploadingDocId.value, 1)
+            Message.success('解析完成')
+            fetchDocs()
+          } else if (ev.data === 'fail') {
+            updateDocStatus(uploadingDocId.value, 2)
+            Message.error('解析失败')
+          }
+        }
+        if (ev.event === 'done') {
+          // 后端控制关闭，前端只清理本地状态
+          uploadingDocId.value = null
+          return
+        }
+      },
+      onerror(err) {
+        updateDocStatus(uploadingDocId.value, 2)
+        Message.error('解析失败')
+        throw err
+      }
+    })
+  } catch (e) {
+    updateDocStatus(uploadingDocId.value, 2)
+  } finally {
+    uploadingDocId.value = null
+  }
+}
+
+const handleFileSelect = async (_, fileItem) => {
+  const file = fileItem?.file
+  if (!file) return
+  uploadFile(file)
+}
+
+const handleRetry = () => {
+  if (retryInputRef.value) {
+    retryInputRef.value.value = ''
+    retryInputRef.value.click()
+  }
+}
+
+const handleRetryUpload = (e) => {
+  const file = e.target.files && e.target.files[0]
+  if (file) {
+    uploadFile(file)
+  }
+  e.target.value = ''
 }
 
 const handleDelete = async (record) => {
@@ -426,6 +614,11 @@ onMounted(() => {
   font-size: 15px;
   color: #333;
   font-weight: 500;
+}
+
+.status-cell {
+  display: flex;
+  align-items: center;
 }
 
 .empty-state {

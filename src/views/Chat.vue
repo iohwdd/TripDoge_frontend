@@ -336,11 +336,11 @@
           :auto-upload="false" 
           :show-file-list="false" 
           @change="handleFileSelect"
-          accept=".txt,.doc,.docx,.md,.pdf,.jpg,.jpeg,.png"
+          accept=".jpg,.jpeg,.png,.gif,.webp"
         >
            <template #upload-button>
               <a-button type="text" shape="circle" class="tool-btn">
-                <icon-attachment />
+                <icon-image />
               </a-button>
            </template>
         </a-upload>
@@ -348,7 +348,7 @@
         <div class="input-wrapper">
           <div v-if="selectedFile" class="file-preview-chip">
              <div class="chip-content">
-               <icon-attachment />
+               <icon-image />
                <span class="file-name">{{ selectedFile.name }}</span>
              </div>
              <icon-close class="close-btn" @click.stop="clearSelectedFile" />
@@ -436,7 +436,7 @@ import { getChatHistory, resetChat } from '@/api/chat'
 import { fetchSkillHistory, downloadSkillMd } from '@/api/skill'
 import { runTravelPlanStream } from '@/api/travel'
 import { Message, Modal } from '@arco-design/web-vue'
-import { IconRefresh, IconAttachment, IconClose, IconLeft, IconSend, IconUser, IconCaretRight, IconSound, IconMute, IconRobot, IconSearch, IconFilter, IconLocation, IconEdit, IconCheckCircle, IconLoading, IconRecord, IconFile, IconFilePdf, IconFileImage, IconDownload, IconEye } from '@arco-design/web-vue/es/icon'
+import { IconRefresh, IconImage, IconClose, IconLeft, IconSend, IconUser, IconCaretRight, IconSound, IconMute, IconRobot, IconSearch, IconFilter, IconLocation, IconEdit, IconCheckCircle, IconLoading, IconRecord, IconFile, IconFilePdf, IconFileImage, IconDownload, IconEye } from '@arco-design/web-vue/es/icon'
 import MarkdownIt from 'markdown-it'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { adaptRoleData } from '@/utils/roleAdapter'
