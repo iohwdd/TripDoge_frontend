@@ -1,10 +1,11 @@
 <template>
   <a-layout class="layout-container">
+    <!-- Desktop Sider -->
     <a-layout-sider
       collapsible
       breakpoint="xl"
       :width="240"
-      class="layout-sider"
+      class="layout-sider desktop-only"
       :collapsed="collapsed"
       @collapse="onCollapse"
     >
@@ -30,7 +31,7 @@
       </a-menu>
     </a-layout-sider>
     
-    <a-layout>
+    <a-layout class="main-layout-body">
       <a-layout-header class="layout-header">
         <div class="header-content">
           <h2 class="page-title">{{ pageTitle }}</h2>
@@ -40,7 +41,7 @@
               <a-avatar :size="36" :image-url="userInfo.avatarUrl" style="background-color: var(--primary-4);">
                 <icon-user />
               </a-avatar>
-              <span class="username">{{ userInfo.nickname || '铲屎官' }}</span>
+              <span class="username mobile-hidden">{{ userInfo.nickname || '铲屎官' }}</span>
               <icon-down style="color: #8D6E63;" />
             </div>
             <template #content>
@@ -59,6 +60,26 @@
           </transition>
         </router-view>
       </a-layout-content>
+
+      <!-- Mobile Bottom Nav -->
+      <div class="mobile-nav mobile-only">
+        <div 
+          class="nav-item" 
+          :class="{ active: route.name === 'roles' }"
+          @click="handleMenuClick('roles')"
+        >
+          <icon-user-group size="20" />
+          <span>伙伴</span>
+        </div>
+        <div 
+          class="nav-item" 
+          :class="{ active: route.name === 'knowledge' }"
+          @click="handleMenuClick('knowledge')"
+        >
+          <icon-book size="20" />
+          <span>记忆</span>
+        </div>
+      </div>
     </a-layout>
   </a-layout>
 </template>
@@ -198,6 +219,7 @@ const handleCommand = async (value) => {
 .layout-content {
   padding: 0 32px 32px 32px;
   overflow-y: auto;
+  height: calc(100vh - 72px); /* Calculate height */
 }
 
 /* Transition */
@@ -210,5 +232,70 @@ const handleCommand = async (value) => {
 .fade-leave-to {
   opacity: 0;
   transform: translateY(10px);
+}
+
+/* Mobile Adaptation */
+.mobile-only {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .desktop-only {
+    display: none !important;
+  }
+  
+  .mobile-only {
+    display: flex;
+  }
+  
+  .mobile-hidden {
+    display: none;
+  }
+
+  .layout-header {
+    padding: 0 16px;
+    height: 60px;
+  }
+
+  .page-title {
+    font-size: 18px;
+  }
+
+  .layout-content {
+    padding: 0 16px 60px 16px; /* Bottom padding for nav bar */
+    height: calc(100vh - 60px);
+  }
+  
+  /* Mobile Bottom Nav */
+  .mobile-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 56px;
+    background: #fff;
+    border-top: 1px solid #f0f0f0;
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    z-index: 100;
+    box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
+  }
+  
+  .nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    color: #999;
+    font-size: 10px;
+    flex: 1;
+    height: 100%;
+  }
+  
+  .nav-item.active {
+    color: #FF7D00;
+  }
 }
 </style>

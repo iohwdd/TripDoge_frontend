@@ -80,7 +80,7 @@
       @ok="isSkillPanelOpen = false"
       @cancel="isSkillPanelOpen = false"
       placement="right"
-      :width="420"
+      :width="drawerWidth"
       :footer="false"
       unmountOnClose
       @open="() => { activeTab = 'plan'; loadHistory(); }"
@@ -871,6 +871,9 @@ const scrollToBottom = async () => {
     chatBodyRef.value.scrollTop = chatBodyRef.value.scrollHeight
   }
 }
+
+const isMobile = computed(() => window.innerWidth <= 768)
+const drawerWidth = computed(() => isMobile.value ? '100%' : 420)
 
 // 返回角色列表
 const backToRoles = () => {
@@ -2127,4 +2130,59 @@ watch(() => route.params.roleId, (newId) => {
   background: #e8ffea; 
 }
 /* 修正线段颜色逻辑：只有当当前节点和下一个节点都完成时，线段才变绿。这里简化处理，不做太复杂 */
+
+/* Mobile Adaptation */
+@media (max-width: 768px) {
+  .chat-header {
+    width: 95%;
+    padding: 0 10px;
+    height: 56px;
+  }
+  
+  .chat-body {
+    padding: 80px 16px 140px 16px; /* Increase bottom padding for nav bar + input */
+  }
+  
+  .message-item {
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  
+  .content {
+    padding: 10px 14px;
+    font-size: 14px;
+  }
+  
+  .avatar :deep(.arco-avatar) {
+    width: 32px !important;
+    height: 32px !important;
+  }
+  
+  .chat-footer {
+    padding: 10px 16px 76px 16px; /* Bottom padding to clear mobile nav bar (56px) + spacing */
+    background: linear-gradient(to top, rgba(255,255,255,1) 0%, rgba(255,255,255,0.9) 60px, rgba(255,255,255,0) 100%);
+  }
+  
+  .input-bar {
+    padding: 6px 6px 6px 12px;
+  }
+  
+  .travel-floating {
+    bottom: 140px; /* Above chat footer and nav bar */
+    right: 16px;
+  }
+  
+  .travel-panel {
+    width: 240px;
+  }
+  
+  .tool-calls-container {
+    max-width: 100%;
+    width: 100%;
+  }
+  
+  .tool-text {
+    font-size: 10px;
+  }
+}
 </style>

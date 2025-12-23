@@ -89,6 +89,7 @@ const handleSubmit = async ({ values, errors }) => {
   height: 100vh;
   background-color: var(--color-bg-1);
   background-image: radial-gradient(circle at 50% 50%, #fff8eb 0%, #ffe4b5 100%);
+  padding: 20px;
 }
 
 .login-box {
@@ -187,5 +188,32 @@ const handleSubmit = async ({ values, errors }) => {
   background: #f9f9f9;
   padding: 8px;
   border-radius: 4px;
+}
+
+/* Mobile Adaptation */
+@media (max-width: 768px) {
+  .login-box {
+    flex-direction: column;
+    width: 100%;
+    height: auto;
+    max-width: 400px;
+  }
+
+  .left-panel {
+    display: none; /* Hide decorative panel on mobile to save space */
+  }
+
+  .right-panel {
+    padding: 30px 20px;
+  }
+
+  .header {
+    margin-bottom: 20px;
+    text-align: center;
+  }
+  
+  .title {
+    font-size: 24px;
+  }
 }
 </style>

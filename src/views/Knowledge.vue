@@ -1,7 +1,7 @@
 <template>
   <div class="knowledge-container">
     <!-- 左侧：角色导航栏 -->
-    <div class="role-sidebar">
+    <div class="role-sidebar" v-show="!isMobile || showRoleList">
       <div class="sidebar-header">
         <h2 class="sidebar-title">记忆对象</h2>
         <a-input-search 
@@ -36,12 +36,15 @@
     </div>
 
     <!-- 右侧：内容管理区 -->
-    <div class="content-area">
+    <div class="content-area" v-show="!isMobile || !showRoleList">
       <template v-if="currentRole">
         <!-- 角色头部卡片 -->
         <div class="content-header" :style="{ backgroundImage: currentRole.bgImage }">
            <div class="header-overlay"></div>
            <div class="header-content">
+             <a-button v-if="isMobile" type="text" shape="circle" class="mobile-back-btn" @click="handleBackToRoles">
+               <icon-left />
+             </a-button>
              <a-avatar :size="64" :image-url="currentRole.avatarUrl" class="header-avatar" :style="{ borderColor: currentRole.themeColor || '#fff' }" />
              <div class="header-text">
                <h1 class="current-role-name">{{ currentRole.name }} 的记忆库</h1>
@@ -170,9 +173,12 @@ import dayjs from 'dayjs'
 import { getDocList, deleteDoc } from '@/api/doc'
 import { getRoleList } from '@/api/role'
 import { Message, Modal } from '@arco-design/web-vue'
-import { IconUpload, IconFile, IconFilePdf, IconDelete, IconFolder, IconUserGroup, IconEye, IconDownload } from '@arco-design/web-vue/es/icon'
+import { IconUpload, IconFile, IconFilePdf, IconDelete, IconFolder, IconUserGroup, IconEye, IconDownload, IconLeft } from '@arco-design/web-vue/es/icon'
 import { adaptRoleData } from '@/utils/roleAdapter' // 引入适配器
 import { fetchEventSource } from '@microsoft/fetch-event-source'
+
+const isMobile = computed(() => window.innerWidth <= 768)
+const showRoleList = ref(true)
 
 const loading = ref(false)
 const data = ref([])
@@ -225,8 +231,10 @@ const init = async () => {
     roles.value = roleRes.map(adaptRoleData)
     
     if (roles.value.length > 0) {
-      currentRoleId.value = roles.value[0].id
-      fetchDocs()
+      if (!isMobile.value) {
+        currentRoleId.value = roles.value[0].id
+        fetchDocs()
+      }
     }
   } catch (error) {
     console.error(error)
@@ -317,7 +325,13 @@ const handleDownload = (record, url) => {
 
 const handleRoleChange = (id) => {
   currentRoleId.value = id
+  showRoleList.value = false
   fetchDocs()
+}
+
+const handleBackToRoles = () => {
+  showRoleList.value = true
+  currentRoleId.value = null
 }
 
 const updateDocStatus = (fileId, status) => {
@@ -652,5 +666,144 @@ onMounted(() => {
 }
 :deep(.arco-table-tr:hover .arco-table-td) {
   background-color: #FFFBF5 !important;
+}
+
+.mobile-back-btn {
+  margin-right: 10px;
+  color: #4E342E;
+  background: rgba(255,255,255,0.6);
+}
+
+/* Mobile Adaptation */
+@media (max-width: 768px) {
+  .knowledge-container {
+    flex-direction: column;
+    border-radius: 0;
+  }
+  
+  .role-sidebar {
+    width: 100%;
+    flex: 1;
+    border-right: none;
+  }
+  
+  .content-area {
+    width: 100%;
+    flex: 1;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 100;
+  }
+  
+  .content-header {
+    height: 120px;
+    padding: 0 16px;
+  }
+  
+  .current-role-name {
+    font-size: 20px;
+  }
+  
+  .current-role-desc {
+    font-size: 12px;
+  }
+  
+  .header-avatar {
+    width: 48px !important;
+    height: 48px !important;
+  }
+  
+  .table-wrapper {
+    padding: 16px;
+  }
+  
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  
+  .left-tools {
+    justify-content: space-between;
+  }
+  
+  /* Mobile Table Card View */
+  :deep(.arco-table-thead) {
+    display: none;
+  }
+  
+  :deep(.arco-table-tr) {
+    display: flex;
+    flex-direction: column;
+    background: #fff;
+    border: 1px solid #f0f0f0;
+    border-radius: 12px;
+    margin-bottom: 12px;
+    padding: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+  }
+  
+  :deep(.arco-table-td) {
+    border-bottom: none !important;
+    padding: 4px 0 !important;
+    background: transparent !important;
+  }
+  
+  /* Custom layout for specific columns */
+  /* Name column */
+  :deep(.arco-table-td:nth-child(1)) {
+    order: 1;
+    font-weight: bold;
+    margin-bottom: 8px;
+  }
+  
+  /* Status column */
+  :deep(.arco-table-td:nth-child(2)) {
+    order: 2;
+    display: flex;
+    justify-content: space-between;
+  }
+  :deep(.arco-table-td:nth-child(2))::before {
+    content: "状态";
+    color: #999;
+    font-size: 12px;
+  }
+  
+  /* Size column */
+  :deep(.arco-table-td:nth-child(3)) {
+    order: 3;
+    display: flex;
+    justify-content: space-between;
+  }
+  :deep(.arco-table-td:nth-child(3))::before {
+    content: "大小";
+    color: #999;
+    font-size: 12px;
+  }
+  
+  /* Time column */
+  :deep(.arco-table-td:nth-child(4)) {
+    order: 4;
+    display: flex;
+    justify-content: space-between;
+  }
+  :deep(.arco-table-td:nth-child(4))::before {
+    content: "时间";
+    color: #999;
+    font-size: 12px;
+  }
+  
+  /* Action column */
+  :deep(.arco-table-td:last-child) {
+    order: 5;
+    margin-top: 12px;
+    padding-top: 12px !important;
+    border-top: 1px solid #f0f0f0 !important;
+    justify-content: flex-end;
+    display: flex;
+  }
 }
 </style>

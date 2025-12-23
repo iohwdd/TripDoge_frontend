@@ -371,6 +371,7 @@ onMounted(() => {
   cursor: pointer;
   opacity: 0.7;
   transition: all 0.3s;
+  flex-shrink: 0; /* Prevent shrinking on mobile */
 }
 .switch-item:hover, .switch-item.active {
   opacity: 1;
@@ -422,5 +423,53 @@ onMounted(() => {
 .pop-enter-from {
   opacity: 0;
   transform: scale(0.8) translateY(10px);
+}
+
+/* Mobile Adaptation */
+@media (max-width: 768px) {
+  .content-layer {
+    padding: 10px 16px;
+  }
+  
+  .greeting-bar {
+    margin-bottom: 10px;
+  }
+  
+  .greeting-bar h1 {
+    font-size: 22px;
+  }
+  
+  .showcase-area {
+    flex-direction: column;
+    gap: 20px;
+    margin-bottom: 20px;
+    overflow-y: auto; /* Allow scrolling if too tall */
+  }
+  
+  .character-stage {
+    width: 240px;
+    height: 300px;
+  }
+  
+  .info-panel {
+    width: 100%;
+  }
+  
+  .role-card {
+    padding: 20px;
+  }
+  
+  .role-switcher {
+    justify-content: flex-start;
+    overflow-x: auto;
+    padding: 10px;
+    gap: 20px;
+    /* Hide scrollbar */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .role-switcher::-webkit-scrollbar {
+    display: none;
+  }
 }
 </style>
