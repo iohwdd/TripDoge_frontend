@@ -26,3 +26,12 @@ export function previewSkillMd(historyId) {
   })
 }
 
+// 获取技能执行额度
+export function getSkillLimit(roleId) {
+  return request({
+    url: '/skill/limit',
+    method: 'get',
+    params: { roleId }
+  })
+}
+

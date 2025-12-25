@@ -83,7 +83,8 @@
       :width="drawerWidth"
       :footer="false"
       unmountOnClose
-      @open="() => { activeTab = 'plan'; loadHistory(); }"
+      :body-style="{ overflowY: 'scroll' }"
+      @open="() => { activeTab = 'plan'; loadHistory(); loadSkillLimit(); }"
     >
       <template #title>
         <div class="drawer-title">
@@ -91,6 +92,19 @@
           <span>旅行定制师</span>
         </div>
       </template>
+
+      <div class="skill-limit-bar" v-if="skillLimit">
+        <div class="limit-info">
+          <span>本月额度</span>
+          <span>{{ skillLimit.currentLimit }} / {{ skillLimit.roleLimit }}</span>
+        </div>
+        <a-progress 
+          :percent="skillLimit.roleLimit > 0 ? skillLimit.currentLimit / skillLimit.roleLimit : 0" 
+          :color="getLimitColor(skillLimit.currentLimit, skillLimit.roleLimit)"
+          size="small"
+          :show-text="false"
+        />
+      </div>
 
       <a-tabs v-model:active-key="activeTab">
         <a-tab-pane key="plan" title="生成行程">
@@ -433,7 +447,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { getRoleDetail } from '@/api/role'
 import { getChatHistory, resetChat } from '@/api/chat'
-import { fetchSkillHistory, downloadSkillMd } from '@/api/skill'
+import { fetchSkillHistory, downloadSkillMd, getSkillLimit } from '@/api/skill'
 import { runTravelPlanStream } from '@/api/travel'
 import { Message, Modal } from '@arco-design/web-vue'
 import { IconRefresh, IconImage, IconClose, IconLeft, IconSend, IconUser, IconCaretRight, IconSound, IconMute, IconRobot, IconSearch, IconFilter, IconLocation, IconEdit, IconCheckCircle, IconLoading, IconRecord, IconFile, IconFilePdf, IconFileImage, IconDownload, IconEye } from '@arco-design/web-vue/es/icon'
@@ -603,6 +617,24 @@ const preferencesOptions = ['自然风光', '人文古迹', '美食探店', '休
 // 技能历史
 const historyLoading = ref(false)
 const historyList = ref([])
+const skillLimit = ref(null)
+
+const getLimitColor = (current, total) => {
+  if (total <= 0) return '#f53f3f'
+  const remainingPct = current / total
+  if (remainingPct <= 0.2) return '#f53f3f' // 红色 (剩余 <= 20%)
+  if (remainingPct <= 0.5) return '#165dff' // 蓝色 (剩余 <= 50%)
+  return '#00b42a' // 绿色 (剩余 > 50%)
+}
+
+const loadSkillLimit = async () => {
+  try {
+    const res = await getSkillLimit(roleId.value)
+    skillLimit.value = res
+  } catch (e) {
+    // ignore
+  }
+}
 
 const loadHistory = async () => {
   historyLoading.value = true
@@ -648,6 +680,12 @@ const handlePreviewMd = async (item) => {
 // 提交旅行规划
 const submitTripPlan = async () => {
   if (travelPlanning.value) return
+  
+  if (skillLimit.value && skillLimit.value.currentLimit <= 0) {
+    Message.error('本月技能使用额度已用完')
+    return
+  }
+
   isSkillPanelOpen.value = false
   travelPlanning.value = true
   travelPlanIndicator.visible = true
@@ -699,13 +737,14 @@ const submitTripPlan = async () => {
         showTravelHint(data.message)
       }
     },
-    onDone: (data) => {
+      onDone: (data) => {
       travelPlanIndicator.status = 'success'
       travelPlanIndicator.text = data?.message || '行程规划已生成，可在历史记录下载。'
       travelPlanIndicator.steps.forEach(s => s.status = 'finish')
       showTravelHint(travelPlanIndicator.text)
       setTimeout(() => { travelPlanIndicator.visible = false }, 8000)
       loadHistory()
+      loadSkillLimit() // 刷新额度
       travelPlanning.value = false
     },
     onError: () => {
@@ -1906,6 +1945,20 @@ watch(() => route.params.roleId, (newId) => {
 .drawer-icon {
   color: var(--primary-6);
   font-size: 20px;
+}
+
+.skill-limit-bar {
+  padding: 0 16px 12px 16px;
+  border-bottom: 1px solid #f2f3f5;
+  margin-bottom: 8px;
+}
+
+.limit-info {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #86909c;
+  margin-bottom: 4px;
 }
 
 .skill-form {
