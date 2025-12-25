@@ -88,6 +88,8 @@
             :bordered="false"
             row-key="fileId"
             class="custom-table"
+            @page-change="(page)=>{ pagination.current = page; fetchDocs(); }"
+            @page-size-change="(size)=>{ pagination.pageSize = size; pagination.current = 1; fetchDocs(); }"
           >
             <template #columns>
               <a-table-column title="文档名称" data-index="fileName">
@@ -168,7 +170,7 @@
 
 <script setup>
 // 引入 vue h 函数用于 Modal
-import { ref, onMounted, computed, h } from 'vue'
+import { ref, onMounted, computed, h, reactive } from 'vue'
 import dayjs from 'dayjs'
 import { getDocList, deleteDoc } from '@/api/doc'
 import { getRoleList } from '@/api/role'
@@ -185,7 +187,7 @@ const data = ref([])
 const roles = ref([])
 const currentRoleId = ref(null)
 const roleSearchKeyword = ref('')
-const pagination = { pageSize: 8 }
+const pagination = reactive({ current: 1, pageSize: 8, total: 0 })
 const uploadingDocId = ref(null)
 const retryInputRef = ref(null)
 const getStatus = (record) => {
@@ -246,8 +248,10 @@ const fetchDocs = async () => {
   
   loading.value = true
   try {
-    const res = await getDocList({ roleId: currentRoleId.value })
-    data.value = (res || []).map(item => ({
+    const res = await getDocList({ roleId: currentRoleId.value, page: pagination.current, pageSize: pagination.pageSize })
+    const list = res?.rows || res || []
+    pagination.total = res?.total ?? list.length
+    data.value = list.map(item => ({
       ...item,
       parseStatus: mapStatus(item.status)
     }))
@@ -325,6 +329,7 @@ const handleDownload = (record, url) => {
 
 const handleRoleChange = (id) => {
   currentRoleId.value = id
+  pagination.current = 1
   showRoleList.value = false
   fetchDocs()
 }

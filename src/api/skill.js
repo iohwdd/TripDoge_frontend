@@ -1,11 +1,11 @@
 import request from '@/utils/request'
 
 // 获取技能执行历史
-export function fetchSkillHistory(roleId) {
+export function fetchSkillHistory(roleId, page = 1, pageSize = 10) {
   return request({
     url: '/skill/history',
     method: 'get',
-    params: { roleId }
+    params: { roleId, page, pageSize }
   })
 }
 

@@ -1,9 +1,10 @@
 import request from '@/utils/request'
 
-export function getChatHistory(roleId) {
+export function getChatHistory(roleId, page = 1, pageSize = 20) {
   return request({
     url: `/chat/${roleId}/history`,
-    method: 'post'
+    method: 'post',
+    params: { page, pageSize }
   })
 }
 

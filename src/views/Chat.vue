@@ -188,6 +188,10 @@
     <!-- 消息列表 (滚动区域) -->
     <div class="chat-body" ref="chatBodyRef">
       <div class="message-list">
+        <div v-if="loadingMoreHistory" class="history-loading">
+          <a-spin size="small" />
+          <span class="loading-text">加载更多...</span>
+        </div>
         <!-- 移除原来写死的今天分割线 -->
         <!-- <div class="date-divider" v-if="messages.length > 0">今天</div> -->
         
@@ -442,7 +446,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick, computed, watch, reactive, h } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, computed, watch, reactive, h } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { getRoleDetail } from '@/api/role'
@@ -580,6 +584,11 @@ const previewAttachment = async (msg) => {
 const roleId = computed(() => route.params.roleId)
 const currentRole = ref(null)
 const messages = ref([])
+const historyPage = ref(1)
+const historyPageSize = ref(20)
+const historyTotal = ref(0)
+const loadingHistory = ref(false)
+const loadingMoreHistory = ref(false)
 const inputText = ref('')
 const selectedFile = ref(null)
 const sending = ref(false)
@@ -640,11 +649,18 @@ const loadHistory = async () => {
   historyLoading.value = true
   try {
     const data = await fetchSkillHistory(roleId.value)
-    historyList.value = data || []
+    historyList.value = (data && data.rows) ? data.rows : (data || [])
   } catch (e) {
     // ignore
   } finally {
     historyLoading.value = false
+  }
+}
+
+const onHistoryScroll = () => {
+  if (!chatBodyRef.value) return
+  if (chatBodyRef.value.scrollTop <= 50) {
+    loadMoreHistory()
   }
 }
 
@@ -932,92 +948,115 @@ const fetchRoleDetail = async () => {
 }
 
 // 获取历史记录 (含工具调用合并逻辑)
-const fetchHistory = async () => {
-  try {
-    const res = await getChatHistory(roleId.value)
-    const processedMsgs = []
-    let tempTool = null
+const processHistoryList = (resList) => {
+  const processedMsgs = []
+  let tempTool = null
 
-    // 遍历原始消息
-    for (const item of res) {
-      if (item.role === 'system') continue // 跳过 system
+  for (const item of resList) {
+    if (item.role === 'system') continue
 
-      // 1. 工具调用请求 (Tool Call)
-      if (item.toolCall) {
-        try {
-          // 解析参数，处理 LangChain4j 可能返回的数组结构
-          let rawCall = item.toolCall
-          let toolName = 'Tool Call'
-          let toolArgs = item.toolCall
-
-          // 尝试解析 JSON
-          if (typeof rawCall === 'string') {
-             try {
-               const parsed = JSON.parse(rawCall)
-               // 如果是数组且包含 id/name/arguments，说明是标准 ToolCall 结构
-               if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].name) {
-                 // 取第一个调用的 name 和 arguments
-                 toolName = parsed[0].name
-                 toolArgs = parsed[0].arguments
-               }
-             } catch(e) { /* ignore */ }
+    if (item.toolCall) {
+      try {
+        let rawCall = item.toolCall
+        let toolName = 'Tool Call'
+        let toolArgs = item.toolCall
+        if (typeof rawCall === 'string') {
+          try {
+            const parsed = JSON.parse(rawCall)
+            if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].name) {
+              toolName = parsed[0].name
+              toolArgs = parsed[0].arguments
+            }
+          } catch (e) { }
+        } else if (typeof rawCall === 'object') {
+          if (Array.isArray(rawCall) && rawCall.length > 0) {
+            toolName = rawCall[0].name || toolName
+            toolArgs = rawCall[0].arguments || toolArgs
+          } else {
+            toolName = rawCall.name || toolName
+            toolArgs = rawCall.arguments || toolArgs
           }
-
-          tempTool = {
-            name: toolName,
-            args: toolArgs,
-            result: null
-          }
-        } catch (e) {
-          tempTool = { name: 'Tool Call', args: item.toolCall, result: null }
         }
-        continue // 暂存，不显示
+        tempTool = { name: toolName, args: toolArgs, result: null }
+      } catch (e) {
+        tempTool = { name: 'Tool Call', args: item.toolCall, result: null }
       }
-
-      // 2. 工具执行结果 (Tool Result)
-      if (item.toolExecResult) {
-        if (tempTool) {
-          tempTool.result = item.toolExecResult
-        } else {
-          tempTool = { name: 'Tool Result', args: 'Unknown', result: item.toolExecResult }
-        }
-        continue // 暂存，不显示
-      }
-
-      // 3. 普通消息 (AI 回复或用户消息)
-      if (item.role === 'assistant') {
-        const msgObj = {
-          id: item.id,
-          role: item.role,
-          content: item.content,
-          loading: false,
-          toolCalls: []
-        }
-        
-        if (tempTool) {
-          msgObj.toolCalls.push(tempTool)
-          tempTool = null 
-        }
-        
-        processedMsgs.push(msgObj)
-      } else {
-        if (tempTool) tempTool = null 
-        
-        processedMsgs.push({
-          id: item.id,
-          role: item.role,
-          content: item.content,
-          attachmentPath: item.attachmentPath,
-          attachmentName: item.attachmentName,
-          loading: false
-        })
-      }
+      continue
     }
 
-    messages.value = processedMsgs
-    scrollToBottom()
+    if (item.toolExecResult) {
+      if (tempTool) {
+        tempTool.result = item.toolExecResult
+      } else {
+        tempTool = { name: 'Tool Result', args: 'Unknown', result: item.toolExecResult }
+      }
+      continue
+    }
+
+    if (item.role === 'assistant') {
+      const msgObj = {
+        id: item.id,
+        role: item.role,
+        content: item.content,
+        loading: false,
+        toolCalls: []
+      }
+      if (tempTool) {
+        msgObj.toolCalls.push(tempTool)
+        tempTool = null
+      }
+      processedMsgs.push(msgObj)
+    } else {
+      if (tempTool) tempTool = null
+      processedMsgs.push({
+        id: item.id,
+        role: item.role,
+        content: item.content,
+        attachmentPath: item.attachmentPath,
+        attachmentName: item.attachmentName,
+        loading: false
+      })
+    }
+  }
+  return processedMsgs
+}
+
+const fetchHistory = async (reset = true) => {
+  if (!roleId.value) return
+  if (reset) {
+    historyPage.value = 1
+    messages.value = []
+  }
+  try {
+    const res = await getChatHistory(roleId.value, historyPage.value, historyPageSize.value)
+    const list = res?.rows || res || []
+    historyTotal.value = res?.total ?? list.length
+    const processed = processHistoryList(list)
+    if (reset) {
+      messages.value = processed
+      await scrollToBottom()
+    } else {
+      const prevHeight = chatBodyRef.value ? chatBodyRef.value.scrollHeight : 0
+      messages.value = [...processed, ...messages.value]
+      await nextTick()
+      if (chatBodyRef.value) {
+        chatBodyRef.value.scrollTop = chatBodyRef.value.scrollHeight - prevHeight
+      }
+    }
   } catch (error) {
     console.error(error)
+  }
+}
+
+const loadMoreHistory = async () => {
+  if (loadingMoreHistory.value) return
+  if (messages.value.length >= historyTotal.value) return
+  loadingMoreHistory.value = true
+  historyPage.value += 1
+  try {
+    await fetchHistory(false)
+  } finally {
+    loadingMoreHistory.value = false
   }
 }
 
@@ -1255,16 +1294,33 @@ const clearSelectedFile = () => {
 onMounted(() => {
   if (roleId.value) {
     fetchRoleDetail()
-    fetchHistory()
+    fetchHistory(true)
+    loadSkillLimit()
+    loadHistory()
   }
+  nextTick(() => {
+    if (chatBodyRef.value) {
+      chatBodyRef.value.addEventListener('scroll', onHistoryScroll)
+    }
+  })
 })
 
 watch(() => route.params.roleId, (newId) => {
   if (newId) {
     currentRole.value = null
     messages.value = []
+    historyPage.value = 1
+    historyTotal.value = 0
     fetchRoleDetail()
-    fetchHistory()
+    fetchHistory(true)
+    loadSkillLimit()
+    loadHistory()
+  }
+})
+
+onUnmounted(() => {
+  if (chatBodyRef.value) {
+    chatBodyRef.value.removeEventListener('scroll', onHistoryScroll)
   }
 })
 </script>
@@ -1394,6 +1450,20 @@ watch(() => route.params.roleId, (newId) => {
   border-radius: 10px;
   display: inline-block;
   align-self: center;
+}
+
+.history-loading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: center;
+  margin: 8px 0 12px;
+  color: #86909c;
+  font-size: 12px;
+}
+
+.loading-text {
+  line-height: 1;
 }
 
 .empty-chat-tip {
